@@ -42,7 +42,7 @@
 -   [x] inbox
 -   [x] today
 -   [x] week
--   [ ] done
+-   [x] done
 
 ## Теги
 
