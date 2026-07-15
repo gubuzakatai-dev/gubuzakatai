@@ -79,7 +79,7 @@
 # 2. Инфраструктура
 
 -   [x] Python
--   [ ] venv
+-   [x] venv
 -   [ ] Telegram Bot
 -   [ ] SQLite
 -   [ ] Проверка запуска
