@@ -39,7 +39,7 @@
 
 ## Статусы
 
--   [ ] inbox
+-   [x] inbox
 -   [ ] today
 -   [ ] week
 -   [ ] done
