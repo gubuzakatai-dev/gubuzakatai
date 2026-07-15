@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -8,6 +9,7 @@ from dotenv import load_dotenv
 class Settings:
     telegram_bot_token: str
     telegram_allowed_user_id: int
+    database_path: Path
 
 
 def load_settings() -> Settings:
@@ -31,4 +33,5 @@ def load_settings() -> Settings:
     return Settings(
         telegram_bot_token=token,
         telegram_allowed_user_id=parsed_user_id,
+        database_path=Path(os.getenv("DATABASE_PATH", "data/database/secondbrain.sqlite3")),
     )

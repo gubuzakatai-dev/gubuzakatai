@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import Application
 
 from secondbrain.config.settings import Settings, load_settings
+from secondbrain.storage.database import create_database_engine, initialize_database
 
 
 def build_application(settings: Settings) -> Application:
@@ -21,6 +22,8 @@ def configure_logging() -> None:
 def main() -> None:
     configure_logging()
     settings = load_settings()
+    engine = create_database_engine(settings.database_path)
+    initialize_database(engine)
     application = build_application(settings)
     logging.getLogger(__name__).info("SecondBrain запускает Telegram polling")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
