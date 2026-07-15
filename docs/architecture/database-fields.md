@@ -63,11 +63,14 @@
 | `audio_path` | `TEXT` | нет | Относительный путь к временному исходному аудио внутри `data/audio/`; очищается после успешного распознавания. |
 | `telegram_sent_at` | `TEXT` | да | Время сообщения по данным Telegram. |
 | `received_at` | `TEXT` | да | Время фактического получения обновления ботом. |
+| `confirmation_sent_at` | `TEXT` | нет | Время успешной отправки единственного итогового подтверждения; `NULL`, пока запись ждёт своей очереди или распознавания. |
 | `created_at` | `TEXT` | да | Время сохранения источника в БД. |
 
 Для `text` обязателен `raw_text`, а голосовые поля равны `NULL`. Для `voice` обязательны оба Telegram ID файла. `audio_path` обязателен, пока нет успешного результата распознавания, и равен `NULL` после удаления успешно обработанного файла. Это единственное изменяемое служебное поле неизменяемого источника.
 
 Пара `telegram_chat_id + telegram_message_id` уникальна и предотвращает повторное создание записи при повторной доставке обновления. `record_id` также уникален: в первой версии одна запись создаётся ровно из одного сообщения Telegram.
+
+Итоговые подтверждения отправляются только для строк с `confirmation_sent_at IS NULL` в порядке `telegram_sent_at`, затем `telegram_message_id`. Поле заполняется только после успешной отправки ответа Telegram; повторный запуск продолжает с первой неподтверждённой строки и не отвечает повторно на уже подтверждённые сообщения.
 
 ## `tags`
 
@@ -154,7 +157,7 @@
 - `records(record_type, task_active_since)`;
 - `records(trashed_at)`;
 - уникального `source_messages(telegram_chat_id, telegram_message_id)`;
-- очереди `source_messages(telegram_chat_id, telegram_sent_at, telegram_message_id)`;
+- очереди `source_messages(telegram_chat_id, confirmation_sent_at, telegram_sent_at, telegram_message_id)`;
 - уникального `tags(normalized_name)`;
 - обратного поиска `record_tags(tag_id, record_id)`;
 - `processing_results(record_id, operation, created_at)`;
