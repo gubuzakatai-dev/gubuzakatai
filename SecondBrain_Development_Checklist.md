@@ -41,7 +41,7 @@
 
 -   [x] inbox
 -   [x] today
--   [ ] week
+-   [x] week
 -   [ ] done
 
 ## Теги
