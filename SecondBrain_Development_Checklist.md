@@ -78,7 +78,7 @@
 
 # 2. Инфраструктура
 
--   [ ] Python
+-   [x] Python
 -   [ ] venv
 -   [ ] Telegram Bot
 -   [ ] SQLite
