@@ -41,6 +41,7 @@
 
 -   [x] inbox
 -   [x] today
+-   [x] tomorrow
 -   [x] week
 -   [x] done
 
