@@ -1,5 +1,8 @@
+import logging
+
 import pytest
 
+from secondbrain.app import configure_logging
 from secondbrain.config.settings import load_settings
 
 
@@ -19,3 +22,9 @@ def test_load_settings_parses_allowed_user(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert settings.telegram_bot_token == "test-token"
     assert settings.telegram_allowed_user_id == 123
+
+
+def test_httpx_info_logging_is_disabled() -> None:
+    configure_logging()
+
+    assert logging.getLogger("httpx").level == logging.WARNING
