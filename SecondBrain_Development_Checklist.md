@@ -80,7 +80,7 @@
 
 -   [x] Python
 -   [x] venv
--   [ ] Telegram Bot
+-   [x] Telegram Bot
 -   [ ] SQLite
 -   [ ] Проверка запуска
 
