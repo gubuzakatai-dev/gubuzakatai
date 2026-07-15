@@ -146,6 +146,7 @@
 - `records(record_type, task_active_since)`;
 - `records(trashed_at)`;
 - уникального `source_messages(telegram_chat_id, telegram_message_id)`;
+- очереди `source_messages(telegram_chat_id, telegram_sent_at, telegram_message_id)`;
 - уникального `tags(normalized_name)`;
 - обратного поиска `record_tags(tag_id, record_id)`;
 - `processing_results(record_id, operation, created_at)`;
