@@ -20,7 +20,7 @@ from secondbrain.services.inbox import (
 )
 from secondbrain.services.tasks import TaskService, build_task_page_keyboard
 
-NAVIGATION_TEXTS = frozenset({"Сегодня", "Завтра", "Папки"})
+NAVIGATION_TEXTS = frozenset({"Сегодня", "Завтра", "Неделя", "Папки"})
 PROCESSED_EDIT_TEXT_KEY = "processed_edit_text"
 
 
@@ -80,6 +80,19 @@ def register_navigation_handlers(
             disable_notification=True,
         )
 
+    async def open_week(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        if task_service is None:
+            return
+        message = update.effective_message
+        if message is None:
+            return
+        page = task_service.build_page("week")
+        await message.reply_text(
+            page.text,
+            reply_markup=build_task_page_keyboard("week", page),
+            disable_notification=True,
+        )
+
     async def open_today_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if task_service is None:
             return
@@ -99,6 +112,16 @@ def register_navigation_handlers(
         await query.answer()
         page = task_service.build_page("tomorrow", _page_from_callback(query.data))
         await query.edit_message_text(page.text, reply_markup=build_task_page_keyboard("tomorrow", page))
+
+    async def open_week_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        if task_service is None:
+            return
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        page = task_service.build_page("week", _page_from_callback(query.data))
+        await query.edit_message_text(page.text, reply_markup=build_task_page_keyboard("week", page))
 
     async def toggle_today_task_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if task_service is None:
@@ -489,6 +512,7 @@ def register_navigation_handlers(
     if task_service is not None:
         application.add_handler(MessageHandler(owner & filters.Regex("^Сегодня$"), open_today), group=0)
         application.add_handler(MessageHandler(owner & filters.Regex("^Завтра$"), open_tomorrow), group=0)
+        application.add_handler(MessageHandler(owner & filters.Regex("^Неделя$"), open_week), group=0)
         application.add_handler(
             CallbackQueryHandler(open_today_callback, pattern="^tasks:today:page:"),
             group=0,
@@ -498,7 +522,11 @@ def register_navigation_handlers(
             group=0,
         )
         application.add_handler(
-            CallbackQueryHandler(toggle_today_task_callback, pattern="^tasks:(today|tomorrow):record:"),
+            CallbackQueryHandler(open_week_callback, pattern="^tasks:week:page:"),
+            group=0,
+        )
+        application.add_handler(
+            CallbackQueryHandler(toggle_today_task_callback, pattern="^tasks:(today|tomorrow|week):record:"),
             group=0,
         )
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)

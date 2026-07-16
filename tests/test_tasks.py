@@ -91,6 +91,40 @@ def test_tomorrow_page_lists_only_tomorrow_tasks(tmp_path: Path) -> None:
     assert "➕ Добавить задачу" not in button_texts
 
 
+def test_week_page_lists_only_week_tasks(tmp_path: Path) -> None:
+    capture, tasks = _services(tmp_path)
+    earlier = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="На этой неделе ранняя",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    later = capture.capture_text(
+        chat_id=10,
+        message_id=2,
+        raw_text="На этой неделе поздняя",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 1, tzinfo=UTC),
+    )
+    capture.capture_text(
+        chat_id=10,
+        message_id=3,
+        raw_text="Завтра не неделя",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 2, tzinfo=UTC),
+    )
+
+    page = tasks.build_page("week")
+
+    assert page.record_ids == (earlier.record_id, later.record_id)
+    assert page.text == "Неделя\n\n1. ☐ Ранняя\n\n2. ☐ Поздняя"
+    keyboard = build_task_page_keyboard("week", page)
+    assert keyboard.inline_keyboard[0][0].text == "☐ 1"
+    assert keyboard.inline_keyboard[0][0].callback_data == (
+        f"tasks:week:record:{earlier.record_id}:page:0"
+    )
+    button_texts = [row[0].text for row in keyboard.inline_keyboard]
+    assert "➕ Добавить задачу" not in button_texts
+
+
 def test_tomorrow_task_can_be_added_by_text_prefix(tmp_path: Path) -> None:
     capture, tasks = _services(tmp_path)
     captured = capture.capture_text(
