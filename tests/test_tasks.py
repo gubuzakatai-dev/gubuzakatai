@@ -208,6 +208,28 @@ def test_toggle_today_task_completion_sets_and_clears_completed_at(tmp_path: Pat
     assert active_keyboard.inline_keyboard[0][0].text == "☐ 1"
 
 
+def test_toggle_tomorrow_task_completion_sets_and_clears_completed_at(tmp_path: Path) -> None:
+    capture, tasks = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Завтра сделать",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    assert tasks.toggle_completion(record_id=captured.record_id, task_list="tomorrow") is True
+    completed_page = tasks.build_page("tomorrow")
+    assert completed_page.text == "Завтра\n\n1. ✅ Сделать"
+    completed_keyboard = build_task_page_keyboard("tomorrow", completed_page)
+    assert completed_keyboard.inline_keyboard[0][0].text == "✅ 1"
+
+    assert tasks.toggle_completion(record_id=captured.record_id, task_list="tomorrow") is True
+    active_page = tasks.build_page("tomorrow")
+    assert active_page.text == "Завтра\n\n1. ☐ Сделать"
+    active_keyboard = build_task_page_keyboard("tomorrow", active_page)
+    assert active_keyboard.inline_keyboard[0][0].text == "☐ 1"
+
+
 def test_toggle_completion_ignores_other_task_list(tmp_path: Path) -> None:
     capture, tasks = _services(tmp_path)
     captured = capture.capture_text(
