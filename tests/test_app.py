@@ -1,11 +1,14 @@
 from secondbrain.app import (
     CONFIRMATION_INTERVAL_SECONDS,
     CONFIRMATION_JOB_NAME,
+    EVENING_REMINDER_INTERVAL_SECONDS,
     LINK_METADATA_INTERVAL_SECONDS,
     LINK_METADATA_JOB_NAME,
     register_confirmation_job,
+    register_evening_reminder_job,
     register_link_metadata_job,
 )
+from secondbrain.services.evening_reminder import EVENING_REMINDER_JOB_NAME
 
 
 class FakeJobQueue:
@@ -33,6 +36,11 @@ class FakeLinkMetadataService:
         return False
 
 
+class FakeEveningReminderService:
+    def prepare_due_reminder(self) -> None:
+        return None
+
+
 def test_register_link_metadata_job_schedules_periodic_processing() -> None:
     application = FakeApplication()
 
@@ -51,3 +59,13 @@ def test_register_confirmation_job_schedules_periodic_processing() -> None:
     assert application.job_queue.jobs[0]["name"] == CONFIRMATION_JOB_NAME
     assert application.job_queue.jobs[0]["interval"] == CONFIRMATION_INTERVAL_SECONDS
     assert application.job_queue.jobs[0]["first"] == CONFIRMATION_INTERVAL_SECONDS
+
+
+def test_register_evening_reminder_job_schedules_periodic_processing() -> None:
+    application = FakeApplication()
+
+    register_evening_reminder_job(application, 10, FakeEveningReminderService())  # type: ignore[arg-type]
+
+    assert application.job_queue.jobs[0]["name"] == EVENING_REMINDER_JOB_NAME
+    assert application.job_queue.jobs[0]["interval"] == EVENING_REMINDER_INTERVAL_SECONDS
+    assert application.job_queue.jobs[0]["first"] == 0

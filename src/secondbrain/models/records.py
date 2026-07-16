@@ -50,3 +50,10 @@ class ReviewRecord:
 class TagOption:
     tag_id: int
     name: str
+
+
+@dataclass(frozen=True, slots=True)
+class EveningReminder:
+    period_key: str
+    inbox_count: int
+    previous_message_id: int | None

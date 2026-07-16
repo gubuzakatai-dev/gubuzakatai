@@ -1,21 +1,34 @@
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import TelegramError
 from telegram.ext import Application, ContextTypes
 
 from secondbrain.bot.handlers import register_capture_handlers
 from secondbrain.bot.navigation import register_navigation_handlers
 from secondbrain.config.settings import Settings, load_settings
 from secondbrain.services.capture import CaptureService
+from secondbrain.services.evening_reminder import (
+    EVENING_REMINDER_JOB_NAME,
+    EveningReminderService,
+    build_evening_reminder_keyboard,
+    build_evening_reminder_text,
+)
 from secondbrain.services.inbox import InboxService
 from secondbrain.services.link_metadata import LinkMetadataService
 from secondbrain.storage.database import create_database_engine, initialize_database
-from secondbrain.storage.repositories import CaptureRepository, InboxRepository, LinkMetadataRepository
+from secondbrain.storage.repositories import (
+    CaptureRepository,
+    EveningReminderRepository,
+    InboxRepository,
+    LinkMetadataRepository,
+)
 
 LINK_METADATA_JOB_NAME = "link_metadata"
 LINK_METADATA_INTERVAL_SECONDS = 60
 CONFIRMATION_JOB_NAME = "pending_confirmations"
 CONFIRMATION_INTERVAL_SECONDS = 5
+EVENING_REMINDER_INTERVAL_SECONDS = 60
 
 
 def build_application(
@@ -23,6 +36,7 @@ def build_application(
     capture_service: CaptureService | None = None,
     link_metadata_service: LinkMetadataService | None = None,
     inbox_service: InboxService | None = None,
+    evening_reminder_service: EveningReminderService | None = None,
 ) -> Application:
     """Build the Telegram application without starting network operations."""
     application = Application.builder().token(settings.telegram_bot_token).build()
@@ -31,6 +45,7 @@ def build_application(
             application,
             allowed_user_id=settings.telegram_allowed_user_id,
             inbox_service=inbox_service,
+            evening_reminder_service=evening_reminder_service,
         )
     if capture_service is not None:
         register_capture_handlers(
@@ -42,6 +57,12 @@ def build_application(
         register_link_metadata_job(application, link_metadata_service)
     if capture_service is not None:
         register_confirmation_job(application, settings.telegram_allowed_user_id, capture_service)
+    if evening_reminder_service is not None:
+        register_evening_reminder_job(
+            application,
+            settings.telegram_allowed_user_id,
+            evening_reminder_service,
+        )
     return application
 
 
@@ -89,6 +110,49 @@ def register_link_metadata_job(application: Application, service: LinkMetadataSe
     )
 
 
+def register_evening_reminder_job(
+    application: Application,
+    allowed_user_id: int,
+    service: EveningReminderService,
+) -> None:
+    async def process_evening_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
+        reminder = service.prepare_due_reminder()
+        if reminder is None:
+            return
+        if reminder.previous_message_id is not None:
+            try:
+                await context.bot.delete_message(
+                    chat_id=allowed_user_id,
+                    message_id=reminder.previous_message_id,
+                )
+            except TelegramError:
+                pass
+        if reminder.inbox_count == 0:
+            service.mark_skipped_empty(period_key=reminder.period_key)
+            return
+        message = await context.bot.send_message(
+            chat_id=allowed_user_id,
+            text=build_evening_reminder_text(reminder.inbox_count),
+            reply_markup=build_evening_reminder_keyboard(),
+            disable_notification=True,
+        )
+        service.mark_sent(
+            period_key=reminder.period_key,
+            telegram_message_id=message.message_id,
+            inbox_count=reminder.inbox_count,
+        )
+
+    if application.job_queue is None:
+        logging.getLogger(__name__).warning("JobQueue недоступен, вечернее напоминание не обрабатывается")
+        return
+    application.job_queue.run_repeating(
+        process_evening_reminder,
+        interval=EVENING_REMINDER_INTERVAL_SECONDS,
+        first=0,
+        name=EVENING_REMINDER_JOB_NAME,
+    )
+
+
 def configure_logging() -> None:
     logging.basicConfig(
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -105,7 +169,18 @@ def main() -> None:
     initialize_database(engine)
     capture_service = CaptureService(CaptureRepository(engine))
     link_metadata_service = LinkMetadataService(LinkMetadataRepository(engine))
-    inbox_service = InboxService(InboxRepository(engine))
-    application = build_application(settings, capture_service, link_metadata_service, inbox_service)
+    inbox_repository = InboxRepository(engine)
+    inbox_service = InboxService(inbox_repository)
+    evening_reminder_service = EveningReminderService(
+        reminder_repository=EveningReminderRepository(engine),
+        inbox_repository=inbox_repository,
+    )
+    application = build_application(
+        settings,
+        capture_service,
+        link_metadata_service,
+        inbox_service,
+        evening_reminder_service,
+    )
     logging.getLogger(__name__).info("SecondBrain запускает Telegram polling")
     application.run_polling(allowed_updates=Update.ALL_TYPES)

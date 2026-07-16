@@ -8,11 +8,19 @@ from secondbrain.models.records import (
     CapturedRecord,
     InboxRecord,
     PendingConfirmation,
+    EveningReminder,
     ReviewRecord,
     TagOption,
 )
 from secondbrain.storage.database import transaction
-from secondbrain.storage.schema import processing_results, record_tags, records, source_messages, tags
+from secondbrain.storage.schema import (
+    processing_results,
+    record_tags,
+    records,
+    scheduled_runs,
+    source_messages,
+    tags,
+)
 
 
 class CaptureRepository:
@@ -441,3 +449,158 @@ class InboxRepository:
                     records.delete().where(records.c.id.in_([row.id for row in trash_rows]))
                 )
         return True
+
+
+class EveningReminderRepository:
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def prepare_reminder(
+        self,
+        *,
+        job_name: str,
+        period_key: str,
+        started_at: str,
+    ) -> EveningReminder | None:
+        with transaction(self._engine) as connection:
+            inbox_count = int(
+                connection.scalar(
+                    select(func.count())
+                    .select_from(records)
+                    .where(
+                        records.c.lifecycle_state == "inbox",
+                        records.c.trashed_at.is_(None),
+                    )
+                )
+                or 0
+            )
+            current = connection.execute(
+                select(scheduled_runs.c.status).where(
+                    scheduled_runs.c.job_name == job_name,
+                    scheduled_runs.c.period_key == period_key,
+                )
+            ).one_or_none()
+            if current is not None and current.status in {"running", "succeeded"}:
+                return None
+
+            previous = connection.execute(
+                select(scheduled_runs.c.telegram_message_id)
+                .where(
+                    scheduled_runs.c.job_name == job_name,
+                    scheduled_runs.c.telegram_message_id.is_not(None),
+                )
+                .order_by(scheduled_runs.c.period_key.desc(), scheduled_runs.c.id.desc())
+                .limit(1)
+            ).one_or_none()
+            previous_message_id = previous.telegram_message_id if previous is not None else None
+
+            values = {
+                "job_name": job_name,
+                "period_key": period_key,
+                "status": "running",
+                "telegram_message_id": None,
+                "details_json": json.dumps({"inbox_count": inbox_count}, sort_keys=True),
+                "error_code": None,
+                "started_at": started_at,
+                "finished_at": None,
+            }
+            try:
+                connection.execute(insert(scheduled_runs).values(**values))
+            except IntegrityError:
+                connection.execute(
+                    update(scheduled_runs)
+                    .where(
+                        scheduled_runs.c.job_name == job_name,
+                        scheduled_runs.c.period_key == period_key,
+                        scheduled_runs.c.status != "succeeded",
+                    )
+                    .values(**{key: value for key, value in values.items() if key not in {"job_name", "period_key"}})
+                )
+
+        return EveningReminder(
+            period_key=period_key,
+            inbox_count=inbox_count,
+            previous_message_id=previous_message_id,
+        )
+
+    def mark_sent(
+        self,
+        *,
+        job_name: str,
+        period_key: str,
+        telegram_message_id: int,
+        inbox_count: int,
+        finished_at: str,
+    ) -> None:
+        with transaction(self._engine) as connection:
+            connection.execute(
+                update(scheduled_runs)
+                .where(
+                    scheduled_runs.c.job_name == job_name,
+                    scheduled_runs.c.period_key == period_key,
+                )
+                .values(
+                    status="succeeded",
+                    telegram_message_id=telegram_message_id,
+                    details_json=json.dumps({"inbox_count": inbox_count}, sort_keys=True),
+                    error_code=None,
+                    finished_at=finished_at,
+                )
+            )
+            connection.execute(
+                update(scheduled_runs)
+                .where(
+                    scheduled_runs.c.job_name == job_name,
+                    scheduled_runs.c.period_key != period_key,
+                )
+                .values(telegram_message_id=None)
+            )
+
+    def mark_skipped_empty(
+        self,
+        *,
+        job_name: str,
+        period_key: str,
+        finished_at: str,
+    ) -> None:
+        with transaction(self._engine) as connection:
+            connection.execute(
+                update(scheduled_runs)
+                .where(
+                    scheduled_runs.c.job_name == job_name,
+                    scheduled_runs.c.period_key == period_key,
+                )
+                .values(
+                    status="succeeded",
+                    telegram_message_id=None,
+                    details_json=json.dumps({"inbox_count": 0}, sort_keys=True),
+                    error_code=None,
+                    finished_at=finished_at,
+                )
+            )
+
+    def clear_message(self, *, job_name: str, telegram_message_id: int) -> None:
+        with transaction(self._engine) as connection:
+            connection.execute(
+                update(scheduled_runs)
+                .where(
+                    scheduled_runs.c.job_name == job_name,
+                    scheduled_runs.c.telegram_message_id == telegram_message_id,
+                )
+                .values(telegram_message_id=None)
+            )
+
+    def get_active_message_id(self, *, job_name: str) -> int | None:
+        with self._engine.connect() as connection:
+            row = connection.execute(
+                select(scheduled_runs.c.telegram_message_id)
+                .where(
+                    scheduled_runs.c.job_name == job_name,
+                    scheduled_runs.c.telegram_message_id.is_not(None),
+                )
+                .order_by(scheduled_runs.c.period_key.desc(), scheduled_runs.c.id.desc())
+                .limit(1)
+            ).one_or_none()
+        if row is None:
+            return None
+        return row.telegram_message_id

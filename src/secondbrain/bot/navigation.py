@@ -1,6 +1,8 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import TelegramError
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
+from secondbrain.services.evening_reminder import EveningReminderService
 from secondbrain.services.inbox import (
     InboxService,
     build_inbox_keyboard,
@@ -19,6 +21,7 @@ def register_navigation_handlers(
     *,
     allowed_user_id: int,
     inbox_service: InboxService,
+    evening_reminder_service: EveningReminderService | None = None,
 ) -> None:
     owner = filters.User(user_id=allowed_user_id)
 
@@ -92,7 +95,7 @@ def register_navigation_handlers(
             return
         await query.edit_message_text(text, reply_markup=build_task_list_keyboard(record_id, page))
 
-    async def convert_to_task_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def convert_to_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         if query is None or query.message is None:
             return
@@ -106,6 +109,11 @@ def register_navigation_handlers(
             page_data = inbox_service.build_page(page)
             await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
             return
+        await _delete_stale_evening_reminder(
+            context,
+            evening_reminder_service,
+            allowed_user_id=allowed_user_id,
+        )
         await _open_next_review(query, inbox_service, page)
 
     async def open_tag_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -172,6 +180,11 @@ def register_navigation_handlers(
             page_data = inbox_service.build_page(page)
             await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
             return
+        await _delete_stale_evening_reminder(
+            context,
+            evening_reminder_service,
+            allowed_user_id=allowed_user_id,
+        )
         await _open_next_review(query, inbox_service, page)
 
     async def open_trash_confirmation_callback(
@@ -192,14 +205,33 @@ def register_navigation_handlers(
             reply_markup=build_trash_confirmation_keyboard(record_id, page),
         )
 
-    async def confirm_trash_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def confirm_trash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         if query is None or query.message is None:
             return
         record_id, page = _record_and_page_from_callback(query.data)
         moved = inbox_service.move_to_trash(record_id=record_id)
         await query.answer("Удалено" if moved else "Запись уже недоступна")
+        if moved:
+            await _delete_stale_evening_reminder(
+                context,
+                evening_reminder_service,
+                allowed_user_id=allowed_user_id,
+            )
         await _open_next_review(query, inbox_service, page)
+
+    async def evening_reminder_review_callback(
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        if evening_reminder_service is not None:
+            evening_reminder_service.clear_message(telegram_message_id=query.message.message_id)
+        await query.message.delete()
+        await _send_next_review(query, inbox_service)
 
     application.add_handler(MessageHandler(owner & filters.Regex("^Папки$"), open_folders), group=0)
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
@@ -231,6 +263,10 @@ def register_navigation_handlers(
     application.add_handler(
         CallbackQueryHandler(open_trash_confirmation_callback, pattern="^inbox:trash:"), group=0
     )
+    application.add_handler(
+        CallbackQueryHandler(evening_reminder_review_callback, pattern="^evening_reminder:review$"),
+        group=0,
+    )
 
 
 def _folders_keyboard(*, inbox_count: int) -> InlineKeyboardMarkup:
@@ -257,6 +293,42 @@ async def _open_next_review(query, inbox_service: InboxService, page: int) -> No
         next_review.page.text,
         reply_markup=build_inbox_keyboard(next_review.page),
     )
+
+
+async def _send_next_review(query, inbox_service: InboxService) -> None:
+    if query.message is None:
+        return
+    next_review = inbox_service.build_next_review(0)
+    if next_review.record_id is not None and next_review.text is not None:
+        await query.message.chat.send_message(
+            next_review.text,
+            reply_markup=build_record_review_keyboard(next_review.record_id, next_review.page.page),
+            disable_notification=True,
+        )
+        return
+    await query.message.chat.send_message(
+        next_review.page.text,
+        reply_markup=build_inbox_keyboard(next_review.page),
+        disable_notification=True,
+    )
+
+
+async def _delete_stale_evening_reminder(
+    context: ContextTypes.DEFAULT_TYPE,
+    evening_reminder_service: EveningReminderService | None,
+    *,
+    allowed_user_id: int,
+) -> None:
+    if evening_reminder_service is None or evening_reminder_service.count_inbox() > 0:
+        return
+    message_id = evening_reminder_service.get_active_message_id()
+    if message_id is None:
+        return
+    try:
+        await context.bot.delete_message(chat_id=allowed_user_id, message_id=message_id)
+    except TelegramError:
+        pass
+    evening_reminder_service.clear_message(telegram_message_id=message_id)
 
 
 def _page_from_callback(data: str | None) -> int:
