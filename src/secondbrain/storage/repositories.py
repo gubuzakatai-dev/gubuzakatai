@@ -835,6 +835,24 @@ class TaskRepository:
             )
         return True
 
+    def move_task(self, *, record_id: int, target_task_list: str, changed_at: str) -> bool:
+        if target_task_list not in {"today", "tomorrow", "week"}:
+            return False
+        with transaction(self._engine) as connection:
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.id == record_id,
+                    records.c.record_type == "task",
+                    records.c.lifecycle_state == "task",
+                    records.c.task_list != target_task_list,
+                    records.c.trashed_at.is_(None),
+                    records.c.hidden_at.is_(None),
+                )
+                .values(task_list=target_task_list, updated_at=changed_at)
+            )
+        return result.rowcount == 1
+
     def process_today_rollover_once(
         self,
         *,

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from secondbrain.services.capture import CaptureService
 from secondbrain.services.tasks import TaskService, build_task_page_keyboard
@@ -89,6 +89,54 @@ def test_tomorrow_page_lists_only_tomorrow_tasks(tmp_path: Path) -> None:
     )
     button_texts = [row[0].text for row in keyboard.inline_keyboard]
     assert "➕ Добавить задачу" not in button_texts
+
+
+def test_tomorrow_task_can_be_added_by_text_prefix(tmp_path: Path) -> None:
+    capture, tasks = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Завтра позвонить",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    page = tasks.build_page("tomorrow")
+
+    assert page.record_ids == (captured.record_id,)
+    assert page.text == "Завтра\n\n1. ☐ Позвонить"
+
+
+def test_task_moves_to_tomorrow_without_resetting_active_since(tmp_path: Path) -> None:
+    engine = create_database_engine(tmp_path / "test.sqlite3")
+    initialize_database(engine)
+    capture = CaptureService(CaptureRepository(engine))
+    tasks = TaskService(TaskRepository(engine))
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Сегодня перенести",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    with engine.connect() as connection:
+        before = connection.scalar(
+            select(records.c.task_active_since).where(records.c.id == captured.record_id)
+        )
+
+    assert tasks.move_task(record_id=captured.record_id, target_task_list="tomorrow") is True
+
+    today = tasks.build_page("today")
+    tomorrow = tasks.build_page("tomorrow")
+    assert today.record_ids == ()
+    assert tomorrow.record_ids == (captured.record_id,)
+    assert tomorrow.text == "Завтра\n\n1. ☐ Перенести"
+    with engine.connect() as connection:
+        row = connection.execute(
+            select(records.c.task_list, records.c.task_active_since).where(
+                records.c.id == captured.record_id
+            )
+        ).one()
+    assert row.task_list == "tomorrow"
+    assert row.task_active_since == before
 
 
 def test_today_page_shows_completed_flag(tmp_path: Path) -> None:

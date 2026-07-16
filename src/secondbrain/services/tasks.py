@@ -77,6 +77,13 @@ class TaskService:
             changed_at=utc_now_text(),
         )
 
+    def move_task(self, *, record_id: int, target_task_list: str) -> bool:
+        return self._repository.move_task(
+            record_id=record_id,
+            target_task_list=target_task_list,
+            changed_at=utc_now_text(),
+        )
+
     def process_today_rollover(self, now: datetime | None = None) -> int | None:
         now = _aware_now(now)
         local_now = now.astimezone(MOSCOW_TZ)
