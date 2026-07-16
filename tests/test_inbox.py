@@ -1,25 +1,29 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy import Engine, select
+
 from secondbrain.services.capture import CaptureService
 from secondbrain.services.inbox import (
     InboxService,
     build_inbox_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
+    build_task_list_keyboard,
 )
 from secondbrain.storage.database import create_database_engine, initialize_database
 from secondbrain.storage.repositories import CaptureRepository, InboxRepository
+from secondbrain.storage.schema import records
 
 
-def _services(tmp_path: Path) -> tuple[CaptureService, InboxService]:
+def _services(tmp_path: Path) -> tuple[CaptureService, InboxService, Engine]:
     engine = create_database_engine(tmp_path / "test.sqlite3")
     initialize_database(engine)
-    return CaptureService(CaptureRepository(engine)), InboxService(InboxRepository(engine))
+    return CaptureService(CaptureRepository(engine)), InboxService(InboxRepository(engine)), engine
 
 
 def test_empty_inbox_page_has_back_button(tmp_path: Path) -> None:
-    _capture, inbox = _services(tmp_path)
+    _capture, inbox, _engine = _services(tmp_path)
     page = inbox.build_page()
 
     assert page.text == "Входящие пусты"
@@ -29,7 +33,7 @@ def test_empty_inbox_page_has_back_button(tmp_path: Path) -> None:
 
 
 def test_inbox_page_lists_oldest_inbox_records_first(tmp_path: Path) -> None:
-    capture, inbox = _services(tmp_path)
+    capture, inbox, _engine = _services(tmp_path)
     capture.capture_text(
         chat_id=10,
         message_id=30,
@@ -57,7 +61,7 @@ def test_inbox_page_lists_oldest_inbox_records_first(tmp_path: Path) -> None:
 
 
 def test_inbox_page_limits_to_ten_records(tmp_path: Path) -> None:
-    capture, inbox = _services(tmp_path)
+    capture, inbox, _engine = _services(tmp_path)
     for index in range(11):
         capture.capture_text(
             chat_id=10,
@@ -76,7 +80,7 @@ def test_inbox_page_limits_to_ten_records(tmp_path: Path) -> None:
 
 
 def test_build_review_returns_selected_inbox_record_text(tmp_path: Path) -> None:
-    capture, inbox = _services(tmp_path)
+    capture, inbox, _engine = _services(tmp_path)
     captured = capture.capture_text(
         chat_id=10,
         message_id=1,
@@ -97,3 +101,33 @@ def test_review_routes_keyboard_keeps_record_and_page_context() -> None:
     assert keyboard.inline_keyboard[1][0].callback_data == "inbox:tags:42:page:3"
     assert keyboard.inline_keyboard[2][0].callback_data == "inbox:trash:42:page:3"
     assert keyboard.inline_keyboard[3][0].callback_data == "inbox:record:42:page:3"
+
+
+def test_task_list_keyboard_keeps_record_and_page_context() -> None:
+    keyboard = build_task_list_keyboard(record_id=42, page=3)
+
+    assert keyboard.inline_keyboard[0][0].callback_data == "inbox:task_list:42:today:3"
+    assert keyboard.inline_keyboard[1][0].callback_data == "inbox:task_list:42:tomorrow:3"
+    assert keyboard.inline_keyboard[2][0].callback_data == "inbox:task_list:42:week:3"
+    assert keyboard.inline_keyboard[3][0].callback_data == "inbox:review:42:page:3"
+
+
+def test_convert_inbox_record_to_task_updates_existing_record(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Сделать задачей",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    assert inbox.convert_to_task(record_id=captured.record_id, task_list="tomorrow") is True
+    assert inbox.count() == 0
+
+    with engine.connect() as connection:
+        row = connection.execute(select(records)).one()
+    assert row.id == captured.record_id
+    assert row.record_type == "task"
+    assert row.lifecycle_state == "task"
+    assert row.task_list == "tomorrow"
+    assert row.task_active_since is not None

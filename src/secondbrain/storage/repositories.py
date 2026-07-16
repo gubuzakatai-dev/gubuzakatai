@@ -334,3 +334,22 @@ class InboxRepository:
         if row is None:
             return None
         return ReviewRecord(record_id=row.id, display_text=row.display_text)
+
+    def convert_inbox_to_task(self, *, record_id: int, task_list: str, changed_at: str) -> bool:
+        with transaction(self._engine) as connection:
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.id == record_id,
+                    records.c.lifecycle_state == "inbox",
+                    records.c.trashed_at.is_(None),
+                )
+                .values(
+                    record_type="task",
+                    lifecycle_state="task",
+                    task_list=task_list,
+                    task_active_since=changed_at,
+                    updated_at=changed_at,
+                )
+            )
+        return result.rowcount == 1

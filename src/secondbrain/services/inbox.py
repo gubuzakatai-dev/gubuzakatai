@@ -1,6 +1,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from secondbrain.models.records import InboxPage
+from secondbrain.storage.database import utc_now_text
 from secondbrain.storage.repositories import InboxRepository
 
 MAX_RECORDS_PER_PAGE = 10
@@ -56,6 +57,13 @@ class InboxService:
             return None
         return record.display_text
 
+    def convert_to_task(self, *, record_id: int, task_list: str) -> bool:
+        return self._repository.convert_inbox_to_task(
+            record_id=record_id,
+            task_list=task_list,
+            changed_at=utc_now_text(),
+        )
+
 
 def build_inbox_keyboard(page: InboxPage) -> InlineKeyboardMarkup:
     if not page.record_ids:
@@ -97,5 +105,16 @@ def build_review_routes_keyboard(record_id: int, page: int) -> InlineKeyboardMar
             [InlineKeyboardButton("Разобрать по тегам", callback_data=f"inbox:tags:{record_id}:page:{page}")],
             [InlineKeyboardButton("Удалить в корзину", callback_data=f"inbox:trash:{record_id}:page:{page}")],
             [InlineKeyboardButton("Назад", callback_data=f"inbox:record:{record_id}:page:{page}")],
+        ]
+    )
+
+
+def build_task_list_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Сегодня", callback_data=f"inbox:task_list:{record_id}:today:{page}")],
+            [InlineKeyboardButton("Завтра", callback_data=f"inbox:task_list:{record_id}:tomorrow:{page}")],
+            [InlineKeyboardButton("Неделя", callback_data=f"inbox:task_list:{record_id}:week:{page}")],
+            [InlineKeyboardButton("Назад", callback_data=f"inbox:review:{record_id}:page:{page}")],
         ]
     )
