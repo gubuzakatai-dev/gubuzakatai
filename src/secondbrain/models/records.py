@@ -34,6 +34,13 @@ class InboxPage:
 
 
 @dataclass(frozen=True, slots=True)
+class InboxNextReview:
+    page: InboxPage
+    record_id: int | None
+    text: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewRecord:
     record_id: int
     display_text: str

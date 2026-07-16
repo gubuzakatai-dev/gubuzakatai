@@ -135,6 +135,51 @@ def test_convert_inbox_record_to_task_updates_existing_record(tmp_path: Path) ->
     assert row.task_active_since is not None
 
 
+def test_next_review_opens_next_inbox_record_after_processing(tmp_path: Path) -> None:
+    capture, inbox, _engine = _services(tmp_path)
+    first = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Первая мысль",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    second = capture.capture_text(
+        chat_id=10,
+        message_id=2,
+        raw_text="Вторая мысль",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 1, tzinfo=UTC),
+    )
+
+    assert inbox.convert_to_task(record_id=first.record_id, task_list="today") is True
+
+    next_review = inbox.build_next_review(page=0)
+    assert next_review.record_id == second.record_id
+    assert next_review.text == "Вторая мысль"
+    assert next_review.page.page == 0
+
+
+def test_next_review_clamps_to_previous_page_when_current_page_becomes_empty(
+    tmp_path: Path,
+) -> None:
+    capture, inbox, _engine = _services(tmp_path)
+    last = None
+    for index in range(11):
+        last = capture.capture_text(
+            chat_id=10,
+            message_id=index + 1,
+            raw_text=f"Мысль {index + 1}",
+            telegram_sent_at=datetime(2026, 7, 16, 10, index, tzinfo=UTC),
+        )
+    assert last is not None
+
+    assert inbox.move_to_trash(record_id=last.record_id) is True
+
+    next_review = inbox.build_next_review(page=1)
+    assert next_review.record_id is not None
+    assert next_review.text == "Мысль 1"
+    assert next_review.page.page == 0
+
+
 def test_tag_selection_keyboard_marks_selected_tags(tmp_path: Path) -> None:
     _capture, inbox, _engine = _services(tmp_path)
     tags = inbox.list_tags()

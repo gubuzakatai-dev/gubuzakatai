@@ -1,6 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from secondbrain.models.records import InboxPage, TagOption
+from secondbrain.models.records import InboxNextReview, InboxPage, TagOption
 from secondbrain.storage.database import utc_now_text
 from secondbrain.storage.repositories import InboxRepository
 
@@ -56,6 +56,18 @@ class InboxService:
         if record is None:
             return None
         return record.display_text
+
+    def build_next_review(self, page: int) -> InboxNextReview:
+        page_data = self.build_page(page)
+        if not page_data.record_ids:
+            return InboxNextReview(page=page_data, record_id=None, text=None)
+
+        record_id = page_data.record_ids[0]
+        return InboxNextReview(
+            page=page_data,
+            record_id=record_id,
+            text=self.build_review(record_id),
+        )
 
     def convert_to_task(self, *, record_id: int, task_list: str) -> bool:
         return self._repository.convert_inbox_to_task(

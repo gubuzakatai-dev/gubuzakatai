@@ -106,17 +106,7 @@ def register_navigation_handlers(
             page_data = inbox_service.build_page(page)
             await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
             return
-        next_page = inbox_service.build_page(page)
-        if next_page.record_ids:
-            next_record_id = next_page.record_ids[0]
-            text = inbox_service.build_review(next_record_id)
-            if text is not None:
-                await query.edit_message_text(
-                    text,
-                    reply_markup=build_record_review_keyboard(next_record_id, next_page.page),
-                )
-                return
-        await query.edit_message_text(next_page.text, reply_markup=build_inbox_keyboard(next_page))
+        await _open_next_review(query, inbox_service, page)
 
     async def open_tag_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -182,17 +172,7 @@ def register_navigation_handlers(
             page_data = inbox_service.build_page(page)
             await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
             return
-        next_page = inbox_service.build_page(page)
-        if next_page.record_ids:
-            next_record_id = next_page.record_ids[0]
-            text = inbox_service.build_review(next_record_id)
-            if text is not None:
-                await query.edit_message_text(
-                    text,
-                    reply_markup=build_record_review_keyboard(next_record_id, next_page.page),
-                )
-                return
-        await query.edit_message_text(next_page.text, reply_markup=build_inbox_keyboard(next_page))
+        await _open_next_review(query, inbox_service, page)
 
     async def open_trash_confirmation_callback(
         update: Update, _context: ContextTypes.DEFAULT_TYPE
@@ -219,17 +199,7 @@ def register_navigation_handlers(
         record_id, page = _record_and_page_from_callback(query.data)
         moved = inbox_service.move_to_trash(record_id=record_id)
         await query.answer("Удалено" if moved else "Запись уже недоступна")
-        next_page = inbox_service.build_page(page)
-        if next_page.record_ids:
-            next_record_id = next_page.record_ids[0]
-            text = inbox_service.build_review(next_record_id)
-            if text is not None:
-                await query.edit_message_text(
-                    text,
-                    reply_markup=build_record_review_keyboard(next_record_id, next_page.page),
-                )
-                return
-        await query.edit_message_text(next_page.text, reply_markup=build_inbox_keyboard(next_page))
+        await _open_next_review(query, inbox_service, page)
 
     application.add_handler(MessageHandler(owner & filters.Regex("^Папки$"), open_folders), group=0)
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
@@ -272,6 +242,20 @@ def _folders_keyboard(*, inbox_count: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton("Поиск по тегам", callback_data="folders:tags")],
             [InlineKeyboardButton("Назад", callback_data="main:open")],
         ]
+    )
+
+
+async def _open_next_review(query, inbox_service: InboxService, page: int) -> None:
+    next_review = inbox_service.build_next_review(page)
+    if next_review.record_id is not None and next_review.text is not None:
+        await query.edit_message_text(
+            next_review.text,
+            reply_markup=build_record_review_keyboard(next_review.record_id, next_review.page.page),
+        )
+        return
+    await query.edit_message_text(
+        next_review.page.text,
+        reply_markup=build_inbox_keyboard(next_review.page),
     )
 
 
