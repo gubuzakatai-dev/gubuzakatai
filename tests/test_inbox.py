@@ -9,6 +9,7 @@ from secondbrain.services.inbox import (
     build_inbox_keyboard,
     build_processed_keyboard,
     build_processed_review_keyboard,
+    build_processed_tag_selection_keyboard,
     build_processed_task_list_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
@@ -179,6 +180,61 @@ def test_processed_task_list_keyboard_keeps_record_and_page_context() -> None:
     assert keyboard.inline_keyboard[1][0].callback_data == "processed:task_list:42:tomorrow:3"
     assert keyboard.inline_keyboard[2][0].callback_data == "processed:task_list:42:week:3"
     assert keyboard.inline_keyboard[3][0].callback_data == "processed:record:42:page:3"
+
+
+def test_processed_tag_selection_keyboard_keeps_record_and_page_context(tmp_path: Path) -> None:
+    _capture, inbox, _engine = _services(tmp_path)
+    tags = inbox.list_tags()
+
+    keyboard = build_processed_tag_selection_keyboard(
+        record_id=42,
+        page=3,
+        tags=tags[:2],
+        selected_tag_ids={tags[0].tag_id},
+    )
+
+    assert keyboard.inline_keyboard[0][0].text == f"✓ {tags[0].name}"
+    assert keyboard.inline_keyboard[0][0].callback_data == f"processed:tag_toggle:42:{tags[0].tag_id}:3"
+    assert keyboard.inline_keyboard[1][0].text == tags[1].name
+    assert keyboard.inline_keyboard[-2][0].callback_data == "processed:tag_save:42:3"
+    assert keyboard.inline_keyboard[-1][0].callback_data == "processed:record:42:page:3"
+
+
+def test_update_processed_tags_replaces_tags_and_keeps_processed_state(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    tags = inbox.list_tags()
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Обновить теги",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    assert inbox.save_tags(record_id=captured.record_id, tag_ids=(tags[0].tag_id,)) is True
+
+    assert inbox.update_processed_tags(record_id=captured.record_id, tag_ids=(tags[1].tag_id,)) is True
+
+    with engine.connect() as connection:
+        record = connection.execute(select(records)).one()
+        assigned = connection.execute(select(record_tags.c.tag_id)).all()
+    assert record.lifecycle_state == "processed"
+    assert record.record_type == "thought"
+    assert tuple(row.tag_id for row in assigned) == (tags[1].tag_id,)
+    assert inbox.build_processed_review(captured.record_id) == f"Обновить теги\n\nТеги: {tags[1].name}"
+
+
+def test_update_processed_tags_requires_existing_tag(tmp_path: Path) -> None:
+    capture, inbox, _engine = _services(tmp_path)
+    tags = inbox.list_tags()
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Не снять все теги",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    assert inbox.save_tags(record_id=captured.record_id, tag_ids=(tags[0].tag_id,)) is True
+
+    assert inbox.update_processed_tags(record_id=captured.record_id, tag_ids=(9999,)) is False
+    assert inbox.build_processed_review(captured.record_id) == f"Не снять все теги\n\nТеги: {tags[0].name}"
 
 
 def test_convert_processed_record_to_task_removes_tags(tmp_path: Path) -> None:

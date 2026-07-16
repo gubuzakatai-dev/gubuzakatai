@@ -96,6 +96,13 @@ class InboxService:
         tag_line = f"Теги: {', '.join(record.tags)}" if record.tags else "Теги: нет"
         return f"{record.display_text}\n\n{tag_line}"
 
+    def processed_tag_ids(self, record_id: int) -> set[int] | None:
+        record = self._repository.get_processed_record(record_id)
+        if record is None:
+            return None
+        tag_ids_by_name = {tag.name: tag.tag_id for tag in self.list_tags()}
+        return {tag_ids_by_name[name] for name in record.tags if name in tag_ids_by_name}
+
     def build_review(self, record_id: int) -> str | None:
         record = self._repository.get_inbox_record(record_id)
         if record is None:
@@ -133,6 +140,13 @@ class InboxService:
 
     def save_tags(self, *, record_id: int, tag_ids: tuple[int, ...]) -> bool:
         return self._repository.mark_inbox_processed_with_tags(
+            record_id=record_id,
+            tag_ids=tag_ids,
+            changed_at=utc_now_text(),
+        )
+
+    def update_processed_tags(self, *, record_id: int, tag_ids: tuple[int, ...]) -> bool:
+        return self._repository.update_processed_tags(
             record_id=record_id,
             tag_ids=tag_ids,
             changed_at=utc_now_text(),
@@ -262,6 +276,27 @@ def build_tag_selection_keyboard(
     ]
     rows.append([InlineKeyboardButton("Сохранить", callback_data=f"inbox:tag_save:{record_id}:{page}")])
     rows.append([InlineKeyboardButton("Назад", callback_data=f"inbox:review:{record_id}:page:{page}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_processed_tag_selection_keyboard(
+    *,
+    record_id: int,
+    page: int,
+    tags: list[TagOption],
+    selected_tag_ids: set[int],
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                f"{'✓ ' if tag.tag_id in selected_tag_ids else ''}{tag.name}",
+                callback_data=f"processed:tag_toggle:{record_id}:{tag.tag_id}:{page}",
+            )
+        ]
+        for tag in tags
+    ]
+    rows.append([InlineKeyboardButton("Сохранить", callback_data=f"processed:tag_save:{record_id}:{page}")])
+    rows.append([InlineKeyboardButton("Назад", callback_data=f"processed:record:{record_id}:page:{page}")])
     return InlineKeyboardMarkup(rows)
 
 

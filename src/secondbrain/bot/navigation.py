@@ -8,6 +8,7 @@ from secondbrain.services.inbox import (
     build_inbox_keyboard,
     build_processed_keyboard,
     build_processed_review_keyboard,
+    build_processed_tag_selection_keyboard,
     build_processed_task_list_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
@@ -114,6 +115,80 @@ def register_navigation_handlers(
         await query.answer("Сохранено" if converted else "Запись уже недоступна")
         page_data = inbox_service.build_processed_page(page)
         await query.edit_message_text(page_data.text, reply_markup=build_processed_keyboard(page_data))
+
+    async def open_processed_tag_selection_callback(
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        record_id, page = _record_and_page_from_callback(query.data)
+        text = inbox_service.build_processed_review(record_id)
+        current_tag_ids = inbox_service.processed_tag_ids(record_id)
+        if text is None or current_tag_ids is None:
+            page_data = inbox_service.build_processed_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_processed_keyboard(page_data))
+            return
+        context.user_data[_tag_session_key(record_id, prefix="processed_tags")] = set(current_tag_ids)
+        await query.edit_message_text(
+            text,
+            reply_markup=build_processed_tag_selection_keyboard(
+                record_id=record_id,
+                page=page,
+                tags=inbox_service.list_tags(),
+                selected_tag_ids=set(current_tag_ids),
+            ),
+        )
+
+    async def toggle_processed_tag_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, tag_id, page = _tag_toggle_from_callback(query.data)
+        selected = _selected_tags(context, record_id, prefix="processed_tags")
+        if tag_id in selected:
+            selected.remove(tag_id)
+        else:
+            selected.add(tag_id)
+        await query.answer()
+        text = inbox_service.build_processed_review(record_id)
+        if text is None:
+            page_data = inbox_service.build_processed_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_processed_keyboard(page_data))
+            return
+        await query.edit_message_text(
+            text,
+            reply_markup=build_processed_tag_selection_keyboard(
+                record_id=record_id,
+                page=page,
+                tags=inbox_service.list_tags(),
+                selected_tag_ids=selected,
+            ),
+        )
+
+    async def save_processed_tags_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, page = _record_and_page_from_callback(query.data)
+        selected = _selected_tags(context, record_id, prefix="processed_tags")
+        if not selected:
+            await query.answer("Выберите хотя бы один тег")
+            return
+        saved = inbox_service.update_processed_tags(record_id=record_id, tag_ids=tuple(sorted(selected)))
+        context.user_data.pop(_tag_session_key(record_id, prefix="processed_tags"), None)
+        await query.answer("Сохранено" if saved else "Запись уже недоступна")
+        text = inbox_service.build_processed_review(record_id)
+        if text is None:
+            page_data = inbox_service.build_processed_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_processed_keyboard(page_data))
+            return
+        await query.edit_message_text(
+            text,
+            reply_markup=build_processed_review_keyboard(record_id, page),
+        )
 
     async def open_record_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -313,6 +388,18 @@ def register_navigation_handlers(
         CallbackQueryHandler(open_processed_task_lists_callback, pattern="^processed:task:"),
         group=0,
     )
+    application.add_handler(
+        CallbackQueryHandler(toggle_processed_tag_callback, pattern="^processed:tag_toggle:"),
+        group=0,
+    )
+    application.add_handler(
+        CallbackQueryHandler(save_processed_tags_callback, pattern="^processed:tag_save:"),
+        group=0,
+    )
+    application.add_handler(
+        CallbackQueryHandler(open_processed_tag_selection_callback, pattern="^processed:tags:"),
+        group=0,
+    )
     application.add_handler(CallbackQueryHandler(open_inbox_callback, pattern="^inbox:page:"), group=0)
     application.add_handler(
         CallbackQueryHandler(open_record_callback, pattern="^inbox:record:"), group=0
@@ -455,8 +542,13 @@ def _tag_toggle_from_callback(data: str | None) -> tuple[int, int, int]:
         return 0, 0, 0
 
 
-def _selected_tags(context: ContextTypes.DEFAULT_TYPE, record_id: int) -> set[int]:
-    key = _tag_session_key(record_id)
+def _selected_tags(
+    context: ContextTypes.DEFAULT_TYPE,
+    record_id: int,
+    *,
+    prefix: str = "inbox_tags",
+) -> set[int]:
+    key = _tag_session_key(record_id, prefix=prefix)
     selected = context.user_data.setdefault(key, set())
     if not isinstance(selected, set):
         selected = set()
@@ -464,5 +556,5 @@ def _selected_tags(context: ContextTypes.DEFAULT_TYPE, record_id: int) -> set[in
     return selected
 
 
-def _tag_session_key(record_id: int) -> str:
-    return f"inbox_tags:{record_id}"
+def _tag_session_key(record_id: int, *, prefix: str = "inbox_tags") -> str:
+    return f"{prefix}:{record_id}"

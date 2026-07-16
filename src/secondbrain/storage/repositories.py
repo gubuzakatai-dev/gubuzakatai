@@ -530,6 +530,45 @@ class InboxRepository:
             tags=tuple(tag for tag in (row.tag_names or "").split(", ") if tag),
         )
 
+    def update_processed_tags(
+        self,
+        *,
+        record_id: int,
+        tag_ids: tuple[int, ...],
+        changed_at: str,
+    ) -> bool:
+        with transaction(self._engine) as connection:
+            existing = connection.execute(
+                select(records.c.id).where(
+                    records.c.id == record_id,
+                    records.c.record_type == "thought",
+                    records.c.lifecycle_state == "processed",
+                    records.c.trashed_at.is_(None),
+                )
+            ).one_or_none()
+            if existing is None:
+                return False
+            existing_tag_ids = {
+                row.id for row in connection.execute(select(tags.c.id).where(tags.c.id.in_(tag_ids)))
+            }
+            selected_tag_ids = tuple(tag_id for tag_id in tag_ids if tag_id in existing_tag_ids)
+            if not selected_tag_ids:
+                return False
+            connection.execute(record_tags.delete().where(record_tags.c.record_id == record_id))
+            connection.execute(
+                insert(record_tags),
+                [
+                    {"record_id": record_id, "tag_id": tag_id, "assigned_at": changed_at}
+                    for tag_id in selected_tag_ids
+                ],
+            )
+            connection.execute(
+                update(records)
+                .where(records.c.id == record_id)
+                .values(updated_at=changed_at)
+            )
+        return True
+
 
 class EveningReminderRepository:
     def __init__(self, engine: Engine) -> None:
