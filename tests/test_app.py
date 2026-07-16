@@ -4,11 +4,14 @@ from secondbrain.app import (
     EVENING_REMINDER_INTERVAL_SECONDS,
     LINK_METADATA_INTERVAL_SECONDS,
     LINK_METADATA_JOB_NAME,
+    TASK_DAILY_ROLLOVER_INTERVAL_SECONDS,
     register_confirmation_job,
     register_evening_reminder_job,
     register_link_metadata_job,
+    register_task_daily_rollover_job,
 )
 from secondbrain.services.evening_reminder import EVENING_REMINDER_JOB_NAME
+from secondbrain.services.tasks import TASK_DAILY_ROLLOVER_JOB_NAME
 
 
 class FakeJobQueue:
@@ -41,6 +44,11 @@ class FakeEveningReminderService:
         return None
 
 
+class FakeTaskService:
+    def process_today_rollover(self) -> None:
+        return None
+
+
 def test_register_link_metadata_job_schedules_periodic_processing() -> None:
     application = FakeApplication()
 
@@ -68,4 +76,14 @@ def test_register_evening_reminder_job_schedules_periodic_processing() -> None:
 
     assert application.job_queue.jobs[0]["name"] == EVENING_REMINDER_JOB_NAME
     assert application.job_queue.jobs[0]["interval"] == EVENING_REMINDER_INTERVAL_SECONDS
+    assert application.job_queue.jobs[0]["first"] == 0
+
+
+def test_register_task_daily_rollover_job_schedules_periodic_processing() -> None:
+    application = FakeApplication()
+
+    register_task_daily_rollover_job(application, FakeTaskService())  # type: ignore[arg-type]
+
+    assert application.job_queue.jobs[0]["name"] == TASK_DAILY_ROLLOVER_JOB_NAME
+    assert application.job_queue.jobs[0]["interval"] == TASK_DAILY_ROLLOVER_INTERVAL_SECONDS
     assert application.job_queue.jobs[0]["first"] == 0

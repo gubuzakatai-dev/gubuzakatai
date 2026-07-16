@@ -834,3 +834,76 @@ class TaskRepository:
                 )
             )
         return True
+
+    def process_today_rollover_once(
+        self,
+        *,
+        job_name: str,
+        period_key: str,
+        cutoff_at: str,
+        changed_at: str,
+    ) -> int | None:
+        with transaction(self._engine) as connection:
+            current = connection.execute(
+                select(scheduled_runs.c.status).where(
+                    scheduled_runs.c.job_name == job_name,
+                    scheduled_runs.c.period_key == period_key,
+                )
+            ).one_or_none()
+            if current is not None and current.status in {"running", "succeeded"}:
+                return None
+
+            values = {
+                "job_name": job_name,
+                "period_key": period_key,
+                "status": "running",
+                "telegram_message_id": None,
+                "details_json": json.dumps({"cutoff_at": cutoff_at}, sort_keys=True),
+                "error_code": None,
+                "started_at": changed_at,
+                "finished_at": None,
+            }
+            try:
+                connection.execute(insert(scheduled_runs).values(**values))
+            except IntegrityError:
+                connection.execute(
+                    update(scheduled_runs)
+                    .where(
+                        scheduled_runs.c.job_name == job_name,
+                        scheduled_runs.c.period_key == period_key,
+                        scheduled_runs.c.status != "succeeded",
+                    )
+                    .values(**{key: value for key, value in values.items() if key not in {"job_name", "period_key"}})
+                )
+
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.record_type == "task",
+                    records.c.lifecycle_state == "task",
+                    records.c.task_list == "today",
+                    records.c.completed_at.is_not(None),
+                    records.c.completed_at < cutoff_at,
+                    records.c.hidden_at.is_(None),
+                    records.c.trashed_at.is_(None),
+                )
+                .values(hidden_at=changed_at, updated_at=changed_at)
+            )
+            hidden_count = result.rowcount
+            connection.execute(
+                update(scheduled_runs)
+                .where(
+                    scheduled_runs.c.job_name == job_name,
+                    scheduled_runs.c.period_key == period_key,
+                )
+                .values(
+                    status="succeeded",
+                    details_json=json.dumps(
+                        {"cutoff_at": cutoff_at, "hidden_count": hidden_count},
+                        sort_keys=True,
+                    ),
+                    error_code=None,
+                    finished_at=changed_at,
+                )
+            )
+        return hidden_count

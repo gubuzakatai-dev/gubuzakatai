@@ -16,7 +16,7 @@ from secondbrain.services.evening_reminder import (
 )
 from secondbrain.services.inbox import InboxService
 from secondbrain.services.link_metadata import LinkMetadataService
-from secondbrain.services.tasks import TaskService
+from secondbrain.services.tasks import TASK_DAILY_ROLLOVER_JOB_NAME, TaskService
 from secondbrain.storage.database import create_database_engine, initialize_database
 from secondbrain.storage.repositories import (
     CaptureRepository,
@@ -31,6 +31,7 @@ LINK_METADATA_INTERVAL_SECONDS = 60
 CONFIRMATION_JOB_NAME = "pending_confirmations"
 CONFIRMATION_INTERVAL_SECONDS = 5
 EVENING_REMINDER_INTERVAL_SECONDS = 60
+TASK_DAILY_ROLLOVER_INTERVAL_SECONDS = 60
 
 
 def build_application(
@@ -68,6 +69,8 @@ def build_application(
             settings.telegram_allowed_user_id,
             evening_reminder_service,
         )
+    if task_service is not None:
+        register_task_daily_rollover_job(application, task_service)
     return application
 
 
@@ -155,6 +158,21 @@ def register_evening_reminder_job(
         interval=EVENING_REMINDER_INTERVAL_SECONDS,
         first=0,
         name=EVENING_REMINDER_JOB_NAME,
+    )
+
+
+def register_task_daily_rollover_job(application: Application, service: TaskService) -> None:
+    async def process_task_daily_rollover(_context: ContextTypes.DEFAULT_TYPE) -> None:
+        service.process_today_rollover()
+
+    if application.job_queue is None:
+        logging.getLogger(__name__).warning("JobQueue недоступен, ежедневная обработка задач не выполняется")
+        return
+    application.job_queue.run_repeating(
+        process_task_daily_rollover,
+        interval=TASK_DAILY_ROLLOVER_INTERVAL_SECONDS,
+        first=0,
+        name=TASK_DAILY_ROLLOVER_JOB_NAME,
     )
 
 

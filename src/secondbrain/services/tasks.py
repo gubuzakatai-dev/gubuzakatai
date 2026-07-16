@@ -1,3 +1,6 @@
+from datetime import UTC, datetime, time
+from zoneinfo import ZoneInfo
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from secondbrain.models.records import TaskPage
@@ -6,6 +9,8 @@ from secondbrain.storage.repositories import TaskRepository
 
 MAX_TASKS_PER_PAGE = 10
 MAX_TASK_MESSAGE_LENGTH = 3500
+TASK_DAILY_ROLLOVER_JOB_NAME = "task_daily_rollover"
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 TASK_LIST_TITLES = {
     "today": "Сегодня",
@@ -72,6 +77,18 @@ class TaskService:
             changed_at=utc_now_text(),
         )
 
+    def process_today_rollover(self, now: datetime | None = None) -> int | None:
+        now = _aware_now(now)
+        local_now = now.astimezone(MOSCOW_TZ)
+        local_midnight = datetime.combine(local_now.date(), time.min, tzinfo=MOSCOW_TZ)
+        cutoff_at = local_midnight.astimezone(UTC).isoformat(timespec="seconds")
+        return self._repository.process_today_rollover_once(
+            job_name=TASK_DAILY_ROLLOVER_JOB_NAME,
+            period_key=local_now.date().isoformat(),
+            cutoff_at=cutoff_at,
+            changed_at=utc_now_text(),
+        )
+
 
 def build_task_page_keyboard(task_list: str, page: TaskPage) -> InlineKeyboardMarkup:
     if not page.record_ids:
@@ -100,3 +117,11 @@ def build_task_page_keyboard(task_list: str, page: TaskPage) -> InlineKeyboardMa
         rows.append(navigation)
     rows.append([InlineKeyboardButton("Назад", callback_data="main:open")])
     return InlineKeyboardMarkup(rows)
+
+
+def _aware_now(now: datetime | None) -> datetime:
+    if now is None:
+        return datetime.now(UTC)
+    if now.tzinfo is None:
+        return now.replace(tzinfo=UTC)
+    return now

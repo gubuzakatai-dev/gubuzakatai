@@ -139,3 +139,49 @@ def test_toggle_completion_ignores_other_task_list(tmp_path: Path) -> None:
 
     page = tasks.build_page("today")
     assert page.text == "Сегодня\n\n1. ☐ Сделать"
+
+
+def test_today_rollover_hides_only_completed_tasks_before_cutoff(tmp_path: Path) -> None:
+    engine = create_database_engine(tmp_path / "test.sqlite3")
+    initialize_database(engine)
+    capture = CaptureService(CaptureRepository(engine))
+    tasks = TaskService(TaskRepository(engine))
+    old_done = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Сегодня старая выполненная",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    active = capture.capture_text(
+        chat_id=10,
+        message_id=2,
+        raw_text="Сегодня активная",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 1, tzinfo=UTC),
+    )
+    fresh_done = capture.capture_text(
+        chat_id=10,
+        message_id=3,
+        raw_text="Сегодня свежая выполненная",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 2, tzinfo=UTC),
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            update(records)
+            .where(records.c.id == old_done.record_id)
+            .values(completed_at="2026-07-16T20:59:00+00:00")
+        )
+        connection.execute(
+            update(records)
+            .where(records.c.id == fresh_done.record_id)
+            .values(completed_at="2026-07-16T21:01:00+00:00")
+        )
+
+    hidden_count = tasks.process_today_rollover(
+        now=datetime(2026, 7, 16, 21, 5, tzinfo=UTC),
+    )
+
+    assert hidden_count == 1
+    page = tasks.build_page("today")
+    assert page.record_ids == (active.record_id, fresh_done.record_id)
+    assert page.text == "Сегодня\n\n1. ☐ Активная\n\n2. ✅ Свежая выполненная"
+    assert tasks.process_today_rollover(now=datetime(2026, 7, 16, 21, 6, tzinfo=UTC)) is None
