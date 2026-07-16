@@ -140,6 +140,21 @@ def test_tomorrow_task_can_be_added_by_text_prefix(tmp_path: Path) -> None:
     assert page.text == "Завтра\n\n1. ☐ Позвонить"
 
 
+def test_week_task_can_be_planned_by_text_prefix(tmp_path: Path) -> None:
+    capture, tasks = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="На этой неделе заказать билеты",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    page = tasks.build_page("week")
+
+    assert page.record_ids == (captured.record_id,)
+    assert page.text == "Неделя\n\n1. ☐ Заказать билеты"
+
+
 def test_task_moves_to_tomorrow_without_resetting_active_since(tmp_path: Path) -> None:
     engine = create_database_engine(tmp_path / "test.sqlite3")
     initialize_database(engine)
