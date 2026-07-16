@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from sqlalchemy import Engine, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
-from secondbrain.models.records import CapturedRecord
+from secondbrain.models.records import CapturedRecord, PendingConfirmation
 from secondbrain.storage.database import transaction
 from secondbrain.storage.schema import processing_results, records, source_messages
 
@@ -75,6 +75,48 @@ class CaptureRepository:
                 .where(
                     source_messages.c.telegram_chat_id == chat_id,
                     source_messages.c.telegram_message_id == message_id,
+                    source_messages.c.confirmation_sent_at.is_(None),
+                )
+                .values(confirmation_sent_at=confirmed_at)
+            )
+
+    def get_next_unconfirmed(self, *, chat_id: int) -> PendingConfirmation | None:
+        with self._engine.connect() as connection:
+            row = connection.execute(
+                select(
+                    source_messages.c.id,
+                    source_messages.c.telegram_chat_id,
+                    records.c.id.label("record_id"),
+                    records.c.display_text,
+                    records.c.task_list,
+                )
+                .join(records, records.c.id == source_messages.c.record_id)
+                .where(
+                    source_messages.c.telegram_chat_id == chat_id,
+                    source_messages.c.confirmation_sent_at.is_(None),
+                )
+                .order_by(
+                    source_messages.c.telegram_sent_at,
+                    source_messages.c.telegram_message_id,
+                )
+                .limit(1)
+            ).one_or_none()
+        if row is None:
+            return None
+        return PendingConfirmation(
+            source_message_id=row.id,
+            chat_id=row.telegram_chat_id,
+            record_id=row.record_id,
+            display_text=row.display_text,
+            destination=_destination(row.task_list),
+        )
+
+    def mark_confirmed_by_source_id(self, *, source_message_id: int, confirmed_at: str) -> None:
+        with transaction(self._engine) as connection:
+            connection.execute(
+                update(source_messages)
+                .where(
+                    source_messages.c.id == source_message_id,
                     source_messages.c.confirmation_sent_at.is_(None),
                 )
                 .values(confirmation_sent_at=confirmed_at)

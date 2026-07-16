@@ -1,6 +1,6 @@
 import logging
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, ContextTypes
 
 from secondbrain.bot.handlers import register_capture_handlers
@@ -12,6 +12,8 @@ from secondbrain.storage.repositories import CaptureRepository, LinkMetadataRepo
 
 LINK_METADATA_JOB_NAME = "link_metadata"
 LINK_METADATA_INTERVAL_SECONDS = 60
+CONFIRMATION_JOB_NAME = "pending_confirmations"
+CONFIRMATION_INTERVAL_SECONDS = 5
 
 
 def build_application(
@@ -29,7 +31,38 @@ def build_application(
         )
     if link_metadata_service is not None:
         register_link_metadata_job(application, link_metadata_service)
+    if capture_service is not None:
+        register_confirmation_job(application, settings.telegram_allowed_user_id, capture_service)
     return application
+
+
+def register_confirmation_job(
+    application: Application,
+    allowed_user_id: int,
+    capture_service: CaptureService,
+) -> None:
+    async def process_pending_confirmations(context: ContextTypes.DEFAULT_TYPE) -> None:
+        while pending := capture_service.get_next_unconfirmed(chat_id=allowed_user_id):
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Изменить", callback_data=f"edit:{pending.record_id}")]]
+            )
+            await context.bot.send_message(
+                chat_id=pending.chat_id,
+                text=f"{pending.display_text}\n\nСохранено: {pending.destination}",
+                reply_markup=keyboard,
+                disable_notification=True,
+            )
+            capture_service.mark_confirmation_sent(source_message_id=pending.source_message_id)
+
+    if application.job_queue is None:
+        logging.getLogger(__name__).warning("JobQueue недоступен, подтверждения не обрабатываются")
+        return
+    application.job_queue.run_repeating(
+        process_pending_confirmations,
+        interval=CONFIRMATION_INTERVAL_SECONDS,
+        first=CONFIRMATION_INTERVAL_SECONDS,
+        name=CONFIRMATION_JOB_NAME,
+    )
 
 
 def register_link_metadata_job(application: Application, service: LinkMetadataService) -> None:

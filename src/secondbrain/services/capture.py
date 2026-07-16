@@ -3,7 +3,7 @@ from datetime import datetime
 from ipaddress import ip_address
 from urllib.parse import urlparse
 
-from secondbrain.models.records import CapturedRecord
+from secondbrain.models.records import CapturedRecord, PendingConfirmation
 from secondbrain.storage.database import utc_now_text
 from secondbrain.storage.repositories import CaptureRepository
 
@@ -46,6 +46,15 @@ class CaptureService:
         self._repository.mark_confirmed(
             chat_id=chat_id,
             message_id=message_id,
+            confirmed_at=utc_now_text(),
+        )
+
+    def get_next_unconfirmed(self, *, chat_id: int) -> PendingConfirmation | None:
+        return self._repository.get_next_unconfirmed(chat_id=chat_id)
+
+    def mark_confirmation_sent(self, *, source_message_id: int) -> None:
+        self._repository.mark_confirmed_by_source_id(
+            source_message_id=source_message_id,
             confirmed_at=utc_now_text(),
         )
 

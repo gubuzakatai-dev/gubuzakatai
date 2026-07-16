@@ -123,3 +123,42 @@ def test_confirmed_duplicate_needs_no_second_reply(tmp_path: Path) -> None:
     )
 
     assert duplicate.confirmation_required is False
+
+
+def test_unconfirmed_confirmations_are_ordered_by_sent_time_then_message_id(tmp_path: Path) -> None:
+    engine = create_database_engine(tmp_path / "test.sqlite3")
+    initialize_database(engine)
+    service = CaptureService(CaptureRepository(engine))
+
+    service.capture_text(
+        chat_id=10,
+        message_id=30,
+        raw_text="Позже",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 1, tzinfo=UTC),
+    )
+    service.capture_text(
+        chat_id=10,
+        message_id=20,
+        raw_text="Раньше",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    service.capture_text(
+        chat_id=10,
+        message_id=21,
+        raw_text="Следом",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    first = service.get_next_unconfirmed(chat_id=10)
+    assert first is not None
+    assert first.display_text == "Раньше"
+    service.mark_confirmation_sent(source_message_id=first.source_message_id)
+
+    second = service.get_next_unconfirmed(chat_id=10)
+    assert second is not None
+    assert second.display_text == "Следом"
+    service.mark_confirmation_sent(source_message_id=second.source_message_id)
+
+    third = service.get_next_unconfirmed(chat_id=10)
+    assert third is not None
+    assert third.display_text == "Позже"

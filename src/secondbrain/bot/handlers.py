@@ -1,4 +1,4 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from secondbrain.services.capture import CaptureService
@@ -21,23 +21,12 @@ def register_capture_handlers(
         message = update.effective_message
         if message is None or message.text is None:
             return
-        captured = capture_service.capture_text(
+        capture_service.capture_text(
             chat_id=message.chat_id,
             message_id=message.message_id,
             raw_text=message.text,
             telegram_sent_at=message.date,
         )
-        if not captured.confirmation_required:
-            return
-        keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Изменить", callback_data=f"edit:{captured.record_id}")]]
-        )
-        await message.reply_text(
-            f"{captured.display_text}\n\nСохранено: {captured.destination}",
-            reply_markup=keyboard,
-            disable_notification=True,
-        )
-        capture_service.mark_confirmed(chat_id=message.chat_id, message_id=message.message_id)
 
     async def reject_voice(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         message = update.effective_message
