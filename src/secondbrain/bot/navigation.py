@@ -31,7 +31,7 @@ def register_navigation_handlers(
             return
         await message.reply_text(
             "Папки",
-            reply_markup=_folders_keyboard(inbox_count=inbox_service.count()),
+            reply_markup=build_folders_keyboard(inbox_count=inbox_service.count()),
             disable_notification=True,
         )
 
@@ -42,7 +42,7 @@ def register_navigation_handlers(
         await query.answer()
         await query.edit_message_text(
             "Папки",
-            reply_markup=_folders_keyboard(inbox_count=inbox_service.count()),
+            reply_markup=build_folders_keyboard(inbox_count=inbox_service.count()),
         )
 
     async def open_inbox_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -269,7 +269,7 @@ def register_navigation_handlers(
     )
 
 
-def _folders_keyboard(*, inbox_count: int) -> InlineKeyboardMarkup:
+def build_folders_keyboard(*, inbox_count: int) -> InlineKeyboardMarkup:
     inbox_label = f"Входящие ({inbox_count})" if inbox_count else "Входящие"
     return InlineKeyboardMarkup(
         [
