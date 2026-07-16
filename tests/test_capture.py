@@ -42,6 +42,26 @@ def test_capture_is_atomic_and_idempotent(tmp_path: Path) -> None:
         assert source.raw_text == "Сегодня дело"
 
 
+def test_keyboard_dictation_text_uses_regular_text_route(tmp_path: Path) -> None:
+    engine = create_database_engine(tmp_path / "test.sqlite3")
+    initialize_database(engine)
+    service = CaptureService(CaptureRepository(engine))
+    sent_at = datetime(2026, 7, 16, tzinfo=UTC)
+
+    captured = service.capture_text(
+        chat_id=10,
+        message_id=21,
+        raw_text="На этой неделе забрать документы",
+        telegram_sent_at=sent_at,
+    )
+
+    assert captured.display_text == "Забрать документы"
+    assert captured.destination == "Неделя"
+    with engine.connect() as connection:
+        source = connection.execute(select(source_messages)).one()
+        assert source.raw_text == "На этой неделе забрать документы"
+
+
 def test_confirmed_duplicate_needs_no_second_reply(tmp_path: Path) -> None:
     engine = create_database_engine(tmp_path / "test.sqlite3")
     initialize_database(engine)
