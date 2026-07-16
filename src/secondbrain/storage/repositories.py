@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from sqlalchemy import Engine, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
-from secondbrain.models.records import CapturedRecord, InboxRecord, PendingConfirmation
+from secondbrain.models.records import CapturedRecord, InboxRecord, PendingConfirmation, ReviewRecord
 from secondbrain.storage.database import transaction
 from secondbrain.storage.schema import processing_results, records, source_messages
 
@@ -321,3 +321,16 @@ class InboxRepository:
                 )
                 or 0
             )
+
+    def get_inbox_record(self, record_id: int) -> ReviewRecord | None:
+        with self._engine.connect() as connection:
+            row = connection.execute(
+                select(records.c.id, records.c.display_text).where(
+                    records.c.id == record_id,
+                    records.c.lifecycle_state == "inbox",
+                    records.c.trashed_at.is_(None),
+                )
+            ).one_or_none()
+        if row is None:
+            return None
+        return ReviewRecord(record_id=row.id, display_text=row.display_text)

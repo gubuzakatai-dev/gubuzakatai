@@ -50,6 +50,12 @@ class InboxService:
     def count(self) -> int:
         return self._repository.count_inbox()
 
+    def build_review(self, record_id: int) -> str | None:
+        record = self._repository.get_inbox_record(record_id)
+        if record is None:
+            return None
+        return record.display_text
+
 
 def build_inbox_keyboard(page: InboxPage) -> InlineKeyboardMarkup:
     if not page.record_ids:
@@ -73,3 +79,23 @@ def build_inbox_keyboard(page: InboxPage) -> InlineKeyboardMarkup:
         rows.append(navigation)
     rows.append([InlineKeyboardButton("Назад", callback_data="folders:open")])
     return InlineKeyboardMarkup(rows)
+
+
+def build_record_review_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Разобрать", callback_data=f"inbox:review:{record_id}:page:{page}")],
+            [InlineKeyboardButton("Назад", callback_data=f"inbox:page:{page}")],
+        ]
+    )
+
+
+def build_review_routes_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Сделать задачей", callback_data=f"inbox:task:{record_id}:page:{page}")],
+            [InlineKeyboardButton("Разобрать по тегам", callback_data=f"inbox:tags:{record_id}:page:{page}")],
+            [InlineKeyboardButton("Удалить в корзину", callback_data=f"inbox:trash:{record_id}:page:{page}")],
+            [InlineKeyboardButton("Назад", callback_data=f"inbox:record:{record_id}:page:{page}")],
+        ]
+    )

@@ -1,7 +1,12 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-from secondbrain.services.inbox import InboxService, build_inbox_keyboard
+from secondbrain.services.inbox import (
+    InboxService,
+    build_inbox_keyboard,
+    build_record_review_keyboard,
+    build_review_routes_keyboard,
+)
 
 NAVIGATION_TEXTS = frozenset({"Папки"})
 
@@ -42,9 +47,44 @@ def register_navigation_handlers(
         page = inbox_service.build_page(_page_from_callback(query.data))
         await query.edit_message_text(page.text, reply_markup=build_inbox_keyboard(page))
 
+    async def open_record_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        record_id, page = _record_and_page_from_callback(query.data)
+        text = inbox_service.build_review(record_id)
+        if text is None:
+            page_data = inbox_service.build_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
+            return
+        await query.edit_message_text(
+            text,
+            reply_markup=build_record_review_keyboard(record_id, page),
+        )
+
+    async def open_review_routes_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        record_id, page = _record_and_page_from_callback(query.data)
+        text = inbox_service.build_review(record_id)
+        if text is None:
+            page_data = inbox_service.build_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
+            return
+        await query.edit_message_text(text, reply_markup=build_review_routes_keyboard(record_id, page))
+
     application.add_handler(MessageHandler(owner & filters.Regex("^Папки$"), open_folders), group=0)
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_inbox_callback, pattern="^inbox:page:"), group=0)
+    application.add_handler(
+        CallbackQueryHandler(open_record_callback, pattern="^inbox:record:"), group=0
+    )
+    application.add_handler(
+        CallbackQueryHandler(open_review_routes_callback, pattern="^inbox:review:"), group=0
+    )
 
 
 def _folders_keyboard(*, inbox_count: int) -> InlineKeyboardMarkup:
@@ -66,3 +106,15 @@ def _page_from_callback(data: str | None) -> int:
         return int(data.rsplit(":", maxsplit=1)[-1])
     except ValueError:
         return 0
+
+
+def _record_and_page_from_callback(data: str | None) -> tuple[int, int]:
+    if data is None:
+        return 0, 0
+    parts = data.split(":")
+    try:
+        record_id = int(parts[2])
+        page = int(parts[-1])
+    except (IndexError, ValueError):
+        return 0, 0
+    return record_id, page

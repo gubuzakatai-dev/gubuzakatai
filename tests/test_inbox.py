@@ -2,7 +2,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from secondbrain.services.capture import CaptureService
-from secondbrain.services.inbox import InboxService, build_inbox_keyboard
+from secondbrain.services.inbox import (
+    InboxService,
+    build_inbox_keyboard,
+    build_record_review_keyboard,
+    build_review_routes_keyboard,
+)
 from secondbrain.storage.database import create_database_engine, initialize_database
 from secondbrain.storage.repositories import CaptureRepository, InboxRepository
 
@@ -68,3 +73,27 @@ def test_inbox_page_limits_to_ten_records(tmp_path: Path) -> None:
     assert first.has_next is True
     assert second.text == "Входящие\n\n1. Мысль 11"
     assert second.has_previous is True
+
+
+def test_build_review_returns_selected_inbox_record_text(tmp_path: Path) -> None:
+    capture, inbox = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Разобрать меня",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    assert inbox.build_review(captured.record_id) == "Разобрать меня"
+    review_keyboard = build_record_review_keyboard(captured.record_id, page=2)
+    assert review_keyboard.inline_keyboard[0][0].text == "Разобрать"
+    assert review_keyboard.inline_keyboard[1][0].callback_data == "inbox:page:2"
+
+
+def test_review_routes_keyboard_keeps_record_and_page_context() -> None:
+    keyboard = build_review_routes_keyboard(record_id=42, page=3)
+
+    assert keyboard.inline_keyboard[0][0].callback_data == "inbox:task:42:page:3"
+    assert keyboard.inline_keyboard[1][0].callback_data == "inbox:tags:42:page:3"
+    assert keyboard.inline_keyboard[2][0].callback_data == "inbox:trash:42:page:3"
+    assert keyboard.inline_keyboard[3][0].callback_data == "inbox:record:42:page:3"

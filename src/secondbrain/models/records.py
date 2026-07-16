@@ -31,3 +31,9 @@ class InboxPage:
     page: int
     has_previous: bool
     has_next: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewRecord:
+    record_id: int
+    display_text: str
