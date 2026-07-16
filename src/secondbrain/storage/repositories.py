@@ -1,3 +1,6 @@
+import json
+from dataclasses import dataclass
+
 from sqlalchemy import Engine, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -107,3 +110,120 @@ def _destination(task_list: str | None) -> str:
         "week": "Неделя",
         None: "Входящие",
     }[task_list]
+
+
+@dataclass(frozen=True, slots=True)
+class PendingLinkMetadata:
+    result_id: int
+    record_id: int
+    source_message_id: int | None
+    url: str
+    current_display_text: str
+    attempt_no: int
+
+
+class LinkMetadataRepository:
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def get_next_pending(self) -> PendingLinkMetadata | None:
+        with self._engine.connect() as connection:
+            row = connection.execute(
+                select(
+                    processing_results.c.id,
+                    processing_results.c.record_id,
+                    processing_results.c.source_message_id,
+                    processing_results.c.input_text,
+                    processing_results.c.attempt_no,
+                    records.c.display_text,
+                )
+                .join(records, records.c.id == processing_results.c.record_id)
+                .where(
+                    processing_results.c.operation == "link_metadata",
+                    processing_results.c.status == "pending",
+                )
+                .order_by(processing_results.c.created_at, processing_results.c.id)
+                .limit(1)
+            ).one_or_none()
+        if row is None:
+            return None
+        return PendingLinkMetadata(
+            result_id=row.id,
+            record_id=row.record_id,
+            source_message_id=row.source_message_id,
+            url=row.input_text,
+            current_display_text=row.display_text,
+            attempt_no=row.attempt_no,
+        )
+
+    def mark_running(self, *, result_id: int, started_at: str) -> None:
+        with transaction(self._engine) as connection:
+            connection.execute(
+                update(processing_results)
+                .where(
+                    processing_results.c.id == result_id,
+                    processing_results.c.status == "pending",
+                )
+                .values(status="running", started_at=started_at)
+            )
+
+    def mark_succeeded(
+        self,
+        *,
+        pending: PendingLinkMetadata,
+        title: str | None,
+        description: str | None,
+        finished_at: str,
+    ) -> None:
+        enriched_text = format_link_display(pending.url, title=title, description=description)
+        output = {"url": pending.url, "title": title, "description": description}
+        with transaction(self._engine) as connection:
+            connection.execute(
+                update(processing_results)
+                .where(processing_results.c.id == pending.result_id)
+                .values(
+                    status="succeeded",
+                    output_text=enriched_text,
+                    output_json=json.dumps(output, ensure_ascii=False, sort_keys=True),
+                    error_code=None,
+                    error_message=None,
+                    finished_at=finished_at,
+                )
+            )
+            connection.execute(
+                update(records)
+                .where(
+                    records.c.id == pending.record_id,
+                    records.c.display_text == pending.url,
+                )
+                .values(display_text=enriched_text, updated_at=finished_at)
+            )
+
+    def mark_failed(
+        self,
+        *,
+        result_id: int,
+        error_code: str,
+        error_message: str,
+        finished_at: str,
+    ) -> None:
+        with transaction(self._engine) as connection:
+            connection.execute(
+                update(processing_results)
+                .where(processing_results.c.id == result_id)
+                .values(
+                    status="failed",
+                    error_code=error_code,
+                    error_message=error_message,
+                    finished_at=finished_at,
+                )
+            )
+
+
+def format_link_display(url: str, *, title: str | None, description: str | None) -> str:
+    lines = [url]
+    if title:
+        lines.append(f"Название: {title}")
+    if description:
+        lines.append(f"Описание: {description}")
+    return "\n".join(lines)
