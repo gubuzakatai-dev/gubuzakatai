@@ -7,6 +7,7 @@ from secondbrain.services.capture import CaptureService
 from secondbrain.services.inbox import (
     InboxService,
     build_inbox_keyboard,
+    build_processed_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
@@ -78,6 +79,67 @@ def test_inbox_page_limits_to_ten_records(tmp_path: Path) -> None:
     assert len(first.record_ids) == 10
     assert first.has_next is True
     assert second.text == "Входящие\n\n1. Мысль 11"
+    assert second.has_previous is True
+
+
+def test_empty_processed_page_has_back_button(tmp_path: Path) -> None:
+    _capture, inbox, _engine = _services(tmp_path)
+    page = inbox.build_processed_page()
+
+    assert page.text == "Разобранных записей нет"
+    assert page.record_ids == ()
+    keyboard = build_processed_keyboard(page)
+    assert keyboard.inline_keyboard[0][0].text == "Назад"
+    assert keyboard.inline_keyboard[0][0].callback_data == "folders:open"
+
+
+def test_processed_page_lists_newest_records_with_tags_first(tmp_path: Path) -> None:
+    capture, inbox, _engine = _services(tmp_path)
+    tags = inbox.list_tags()
+    first = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Старая разобранная",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    second = capture.capture_text(
+        chat_id=10,
+        message_id=2,
+        raw_text="Новая разобранная",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 1, tzinfo=UTC),
+    )
+
+    assert inbox.save_tags(record_id=first.record_id, tag_ids=(tags[0].tag_id,)) is True
+    assert inbox.save_tags(record_id=second.record_id, tag_ids=(tags[1].tag_id, tags[0].tag_id)) is True
+
+    page = inbox.build_processed_page()
+
+    assert page.record_ids == (second.record_id, first.record_id)
+    assert page.text == (
+        "Разобранные\n\n"
+        f"1. Новая разобранная\nТеги: {tags[0].name}, {tags[1].name}\n\n"
+        f"2. Старая разобранная\nТеги: {tags[0].name}"
+    )
+
+
+def test_processed_page_limits_to_ten_records(tmp_path: Path) -> None:
+    capture, inbox, _engine = _services(tmp_path)
+    tag = inbox.list_tags()[0]
+    for index in range(11):
+        captured = capture.capture_text(
+            chat_id=10,
+            message_id=index + 1,
+            raw_text=f"Разобранная {index + 1}",
+            telegram_sent_at=datetime(2026, 7, 16, 10, index, tzinfo=UTC),
+        )
+        assert inbox.save_tags(record_id=captured.record_id, tag_ids=(tag.tag_id,)) is True
+
+    first = inbox.build_processed_page(0)
+    second = inbox.build_processed_page(1)
+
+    assert len(first.record_ids) == 10
+    assert first.has_next is True
+    assert second.text == f"Разобранные\n\n1. Разобранная 1\nТеги: {tag.name}"
     assert second.has_previous is True
 
 

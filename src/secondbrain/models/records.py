@@ -34,6 +34,22 @@ class InboxPage:
 
 
 @dataclass(frozen=True, slots=True)
+class ProcessedRecord:
+    record_id: int
+    display_text: str
+    tags: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessedPage:
+    text: str
+    record_ids: tuple[int, ...]
+    page: int
+    has_previous: bool
+    has_next: bool
+
+
+@dataclass(frozen=True, slots=True)
 class InboxNextReview:
     page: InboxPage
     record_id: int | None

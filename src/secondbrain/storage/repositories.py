@@ -9,6 +9,7 @@ from secondbrain.models.records import (
     InboxRecord,
     PendingConfirmation,
     EveningReminder,
+    ProcessedRecord,
     ReviewRecord,
     TagOption,
 )
@@ -449,6 +450,35 @@ class InboxRepository:
                     records.delete().where(records.c.id.in_([row.id for row in trash_rows]))
                 )
         return True
+
+    def list_processed(self) -> list[ProcessedRecord]:
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    records.c.id,
+                    records.c.display_text,
+                    func.group_concat(tags.c.name, ", ").label("tag_names"),
+                    records.c.updated_at,
+                )
+                .select_from(records)
+                .outerjoin(record_tags, record_tags.c.record_id == records.c.id)
+                .outerjoin(tags, tags.c.id == record_tags.c.tag_id)
+                .where(
+                    records.c.record_type == "thought",
+                    records.c.lifecycle_state == "processed",
+                    records.c.trashed_at.is_(None),
+                )
+                .group_by(records.c.id)
+                .order_by(records.c.updated_at.desc(), records.c.id.desc())
+            ).all()
+        return [
+            ProcessedRecord(
+                record_id=row.id,
+                display_text=row.display_text,
+                tags=tuple(tag for tag in (row.tag_names or "").split(", ") if tag),
+            )
+            for row in rows
+        ]
 
 
 class EveningReminderRepository:
