@@ -369,6 +369,29 @@ class InboxRepository:
             )
         return result.rowcount == 1
 
+    def convert_processed_to_task(self, *, record_id: int, task_list: str, changed_at: str) -> bool:
+        with transaction(self._engine) as connection:
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.id == record_id,
+                    records.c.record_type == "thought",
+                    records.c.lifecycle_state == "processed",
+                    records.c.trashed_at.is_(None),
+                )
+                .values(
+                    record_type="task",
+                    lifecycle_state="task",
+                    task_list=task_list,
+                    task_active_since=changed_at,
+                    updated_at=changed_at,
+                )
+            )
+            if result.rowcount != 1:
+                return False
+            connection.execute(record_tags.delete().where(record_tags.c.record_id == record_id))
+        return True
+
     def list_tags(self) -> list[TagOption]:
         with self._engine.connect() as connection:
             rows = connection.execute(

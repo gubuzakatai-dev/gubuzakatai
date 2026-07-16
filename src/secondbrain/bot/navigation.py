@@ -8,6 +8,7 @@ from secondbrain.services.inbox import (
     build_inbox_keyboard,
     build_processed_keyboard,
     build_processed_review_keyboard,
+    build_processed_task_list_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
@@ -81,6 +82,38 @@ def register_navigation_handlers(
             text,
             reply_markup=build_processed_review_keyboard(record_id, page),
         )
+
+    async def open_processed_task_lists_callback(
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        record_id, page = _record_and_page_from_callback(query.data)
+        text = inbox_service.build_processed_review(record_id)
+        if text is None:
+            page_data = inbox_service.build_processed_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_processed_keyboard(page_data))
+            return
+        await query.edit_message_text(text, reply_markup=build_processed_task_list_keyboard(record_id, page))
+
+    async def convert_processed_to_task_callback(
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, task_list, page = _task_list_from_callback(query.data)
+        if task_list is None:
+            await query.answer()
+            return
+        converted = inbox_service.convert_processed_to_task(record_id=record_id, task_list=task_list)
+        await query.answer("Сохранено" if converted else "Запись уже недоступна")
+        page_data = inbox_service.build_processed_page(page)
+        await query.edit_message_text(page_data.text, reply_markup=build_processed_keyboard(page_data))
 
     async def open_record_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -272,6 +305,14 @@ def register_navigation_handlers(
         CallbackQueryHandler(open_processed_record_callback, pattern="^processed:record:"),
         group=0,
     )
+    application.add_handler(
+        CallbackQueryHandler(convert_processed_to_task_callback, pattern="^processed:task_list:"),
+        group=0,
+    )
+    application.add_handler(
+        CallbackQueryHandler(open_processed_task_lists_callback, pattern="^processed:task:"),
+        group=0,
+    )
     application.add_handler(CallbackQueryHandler(open_inbox_callback, pattern="^inbox:page:"), group=0)
     application.add_handler(
         CallbackQueryHandler(open_record_callback, pattern="^inbox:record:"), group=0
@@ -280,10 +321,10 @@ def register_navigation_handlers(
         CallbackQueryHandler(open_review_routes_callback, pattern="^inbox:review:"), group=0
     )
     application.add_handler(
-        CallbackQueryHandler(open_task_lists_callback, pattern="^inbox:task:"), group=0
+        CallbackQueryHandler(convert_to_task_callback, pattern="^inbox:task_list:"), group=0
     )
     application.add_handler(
-        CallbackQueryHandler(convert_to_task_callback, pattern="^inbox:task_list:"), group=0
+        CallbackQueryHandler(open_task_lists_callback, pattern="^inbox:task:"), group=0
     )
     application.add_handler(
         CallbackQueryHandler(open_tag_selection_callback, pattern="^inbox:tags:"), group=0

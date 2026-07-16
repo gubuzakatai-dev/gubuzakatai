@@ -9,6 +9,7 @@ from secondbrain.services.inbox import (
     build_inbox_keyboard,
     build_processed_keyboard,
     build_processed_review_keyboard,
+    build_processed_task_list_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
@@ -169,6 +170,40 @@ def test_processed_review_keyboard_keeps_record_and_page_context() -> None:
     assert keyboard.inline_keyboard[2][0].callback_data == "processed:task:42:3"
     assert keyboard.inline_keyboard[3][0].callback_data == "processed:trash:42:3"
     assert keyboard.inline_keyboard[4][0].callback_data == "processed:page:3"
+
+
+def test_processed_task_list_keyboard_keeps_record_and_page_context() -> None:
+    keyboard = build_processed_task_list_keyboard(record_id=42, page=3)
+
+    assert keyboard.inline_keyboard[0][0].callback_data == "processed:task_list:42:today:3"
+    assert keyboard.inline_keyboard[1][0].callback_data == "processed:task_list:42:tomorrow:3"
+    assert keyboard.inline_keyboard[2][0].callback_data == "processed:task_list:42:week:3"
+    assert keyboard.inline_keyboard[3][0].callback_data == "processed:record:42:page:3"
+
+
+def test_convert_processed_record_to_task_removes_tags(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Разобранную в задачу",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    tag_ids = tuple(tag.tag_id for tag in inbox.list_tags()[:2])
+    assert inbox.save_tags(record_id=captured.record_id, tag_ids=tag_ids) is True
+
+    assert inbox.convert_processed_to_task(record_id=captured.record_id, task_list="week") is True
+
+    with engine.connect() as connection:
+        record = connection.execute(select(records)).one()
+        assigned_count = connection.scalar(select(func.count()).select_from(record_tags))
+    assert record.id == captured.record_id
+    assert record.record_type == "task"
+    assert record.lifecycle_state == "task"
+    assert record.task_list == "week"
+    assert record.task_active_since is not None
+    assert assigned_count == 0
+    assert inbox.build_processed_page().record_ids == ()
 
 
 def test_build_review_returns_selected_inbox_record_text(tmp_path: Path) -> None:

@@ -121,6 +121,13 @@ class InboxService:
             changed_at=utc_now_text(),
         )
 
+    def convert_processed_to_task(self, *, record_id: int, task_list: str) -> bool:
+        return self._repository.convert_processed_to_task(
+            record_id=record_id,
+            task_list=task_list,
+            changed_at=utc_now_text(),
+        )
+
     def list_tags(self) -> list[TagOption]:
         return self._repository.list_tags()
 
@@ -222,6 +229,17 @@ def build_task_list_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton("Завтра", callback_data=f"inbox:task_list:{record_id}:tomorrow:{page}")],
             [InlineKeyboardButton("Неделя", callback_data=f"inbox:task_list:{record_id}:week:{page}")],
             [InlineKeyboardButton("Назад", callback_data=f"inbox:review:{record_id}:page:{page}")],
+        ]
+    )
+
+
+def build_processed_task_list_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Сегодня", callback_data=f"processed:task_list:{record_id}:today:{page}")],
+            [InlineKeyboardButton("Завтра", callback_data=f"processed:task_list:{record_id}:tomorrow:{page}")],
+            [InlineKeyboardButton("Неделя", callback_data=f"processed:task_list:{record_id}:week:{page}")],
+            [InlineKeyboardButton("Назад", callback_data=f"processed:record:{record_id}:page:{page}")],
         ]
     )
 
