@@ -16,3 +16,18 @@ class PendingConfirmation:
     record_id: int
     display_text: str
     destination: str
+
+
+@dataclass(frozen=True, slots=True)
+class InboxRecord:
+    record_id: int
+    display_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class InboxPage:
+    text: str
+    record_ids: tuple[int, ...]
+    page: int
+    has_previous: bool
+    has_next: bool

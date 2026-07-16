@@ -4,11 +4,13 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, ContextTypes
 
 from secondbrain.bot.handlers import register_capture_handlers
+from secondbrain.bot.navigation import register_navigation_handlers
 from secondbrain.config.settings import Settings, load_settings
 from secondbrain.services.capture import CaptureService
+from secondbrain.services.inbox import InboxService
 from secondbrain.services.link_metadata import LinkMetadataService
 from secondbrain.storage.database import create_database_engine, initialize_database
-from secondbrain.storage.repositories import CaptureRepository, LinkMetadataRepository
+from secondbrain.storage.repositories import CaptureRepository, InboxRepository, LinkMetadataRepository
 
 LINK_METADATA_JOB_NAME = "link_metadata"
 LINK_METADATA_INTERVAL_SECONDS = 60
@@ -20,9 +22,16 @@ def build_application(
     settings: Settings,
     capture_service: CaptureService | None = None,
     link_metadata_service: LinkMetadataService | None = None,
+    inbox_service: InboxService | None = None,
 ) -> Application:
     """Build the Telegram application without starting network operations."""
     application = Application.builder().token(settings.telegram_bot_token).build()
+    if inbox_service is not None:
+        register_navigation_handlers(
+            application,
+            allowed_user_id=settings.telegram_allowed_user_id,
+            inbox_service=inbox_service,
+        )
     if capture_service is not None:
         register_capture_handlers(
             application,
@@ -96,6 +105,7 @@ def main() -> None:
     initialize_database(engine)
     capture_service = CaptureService(CaptureRepository(engine))
     link_metadata_service = LinkMetadataService(LinkMetadataRepository(engine))
-    application = build_application(settings, capture_service, link_metadata_service)
+    inbox_service = InboxService(InboxRepository(engine))
+    application = build_application(settings, capture_service, link_metadata_service, inbox_service)
     logging.getLogger(__name__).info("SecondBrain запускает Telegram polling")
     application.run_polling(allowed_updates=Update.ALL_TYPES)

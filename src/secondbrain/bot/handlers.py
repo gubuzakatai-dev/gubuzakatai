@@ -2,6 +2,7 @@ from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from secondbrain.services.capture import CaptureService
+from secondbrain.bot.navigation import NAVIGATION_TEXTS
 
 VOICE_REPLY = (
     "В первой версии отправьте текст. "
@@ -33,5 +34,8 @@ def register_capture_handlers(
         if message is not None:
             await message.reply_text(VOICE_REPLY, disable_notification=True)
 
-    application.add_handler(MessageHandler(owner & filters.TEXT & ~filters.COMMAND, receive_text))
+    navigation_texts = filters.Regex(f"^({'|'.join(NAVIGATION_TEXTS)})$")
+    application.add_handler(
+        MessageHandler(owner & filters.TEXT & ~filters.COMMAND & ~navigation_texts, receive_text)
+    )
     application.add_handler(MessageHandler(owner & filters.VOICE, reject_voice))

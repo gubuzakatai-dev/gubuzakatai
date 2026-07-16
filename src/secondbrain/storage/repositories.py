@@ -1,10 +1,10 @@
 import json
 from dataclasses import dataclass
 
-from sqlalchemy import Engine, insert, select, update
+from sqlalchemy import Engine, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
-from secondbrain.models.records import CapturedRecord, PendingConfirmation
+from secondbrain.models.records import CapturedRecord, InboxRecord, PendingConfirmation
 from secondbrain.storage.database import transaction
 from secondbrain.storage.schema import processing_results, records, source_messages
 
@@ -282,3 +282,42 @@ def format_link_display(url: str, *, title: str | None, description: str | None)
     if description:
         lines.append(f"Описание: {description}")
     return "\n".join(lines)
+
+
+class InboxRepository:
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def list_inbox(self) -> list[InboxRecord]:
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(records.c.id, records.c.display_text)
+                .join(source_messages, source_messages.c.record_id == records.c.id)
+                .where(
+                    records.c.lifecycle_state == "inbox",
+                    records.c.trashed_at.is_(None),
+                )
+                .order_by(
+                    source_messages.c.telegram_sent_at,
+                    source_messages.c.telegram_message_id,
+                    records.c.id,
+                )
+            ).all()
+        return [
+            InboxRecord(record_id=row.id, display_text=row.display_text)
+            for row in rows
+        ]
+
+    def count_inbox(self) -> int:
+        with self._engine.connect() as connection:
+            return int(
+                connection.scalar(
+                    select(func.count())
+                    .select_from(records)
+                    .where(
+                        records.c.lifecycle_state == "inbox",
+                        records.c.trashed_at.is_(None),
+                    )
+                )
+                or 0
+            )
