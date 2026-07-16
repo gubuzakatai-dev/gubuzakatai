@@ -3,7 +3,7 @@ from sqlalchemy.exc import IntegrityError
 
 from secondbrain.models.records import CapturedRecord
 from secondbrain.storage.database import transaction
-from secondbrain.storage.schema import records, source_messages
+from secondbrain.storage.schema import processing_results, records, source_messages
 
 
 class CaptureRepository:
@@ -20,6 +20,7 @@ class CaptureRepository:
         record_type: str,
         lifecycle_state: str,
         task_list: str | None,
+        link_metadata_url: str | None,
         telegram_sent_at: str,
         received_at: str,
     ) -> CapturedRecord:
@@ -37,7 +38,7 @@ class CaptureRepository:
                     )
                 )
                 record_id = int(created.inserted_primary_key[0])
-                connection.execute(
+                source = connection.execute(
                     insert(source_messages).values(
                         record_id=record_id,
                         telegram_chat_id=chat_id,
@@ -48,6 +49,18 @@ class CaptureRepository:
                         created_at=received_at,
                     )
                 )
+                if link_metadata_url is not None:
+                    connection.execute(
+                        insert(processing_results).values(
+                            record_id=record_id,
+                            source_message_id=int(source.inserted_primary_key[0]),
+                            operation="link_metadata",
+                            status="pending",
+                            input_text=link_metadata_url,
+                            attempt_no=1,
+                            created_at=received_at,
+                        )
+                    )
             return CapturedRecord(record_id, display_text, _destination(task_list), True)
         except IntegrityError:
             return self._get_existing(chat_id=chat_id, message_id=message_id)

@@ -1,5 +1,7 @@
 import unicodedata
 from datetime import datetime
+from ipaddress import ip_address
+from urllib.parse import urlparse
 
 from secondbrain.models.records import CapturedRecord
 from secondbrain.storage.database import utc_now_text
@@ -26,6 +28,7 @@ class CaptureService:
     ) -> CapturedRecord:
         display_text, task_list = parse_text(raw_text)
         received_at = utc_now_text()
+        link_metadata_url = detect_standalone_link(raw_text) if task_list is None else None
         return self._repository.create(
             chat_id=chat_id,
             message_id=message_id,
@@ -34,6 +37,7 @@ class CaptureService:
             record_type="task" if task_list else "thought",
             lifecycle_state="task" if task_list else "inbox",
             task_list=task_list,
+            link_metadata_url=link_metadata_url,
             telegram_sent_at=telegram_sent_at.isoformat(timespec="seconds"),
             received_at=received_at,
         )
@@ -70,3 +74,27 @@ def _is_separator(character: str) -> bool:
 
 def _uppercase_first(text: str) -> str:
     return text[0].upper() + text[1:]
+
+
+def detect_standalone_link(raw_text: str) -> str | None:
+    text = raw_text.strip()
+    if not text or any(character.isspace() for character in text):
+        return None
+
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    if not parsed.netloc or parsed.username or parsed.password:
+        return None
+
+    hostname = parsed.hostname
+    if hostname is None or hostname.casefold() == "localhost":
+        return None
+
+    try:
+        address = ip_address(hostname)
+    except ValueError:
+        return text
+    if not address.is_global:
+        return None
+    return text
