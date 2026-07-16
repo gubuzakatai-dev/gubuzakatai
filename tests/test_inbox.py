@@ -8,6 +8,7 @@ from secondbrain.services.inbox import (
     InboxService,
     build_inbox_keyboard,
     build_processed_keyboard,
+    build_processed_review_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
@@ -141,6 +142,33 @@ def test_processed_page_limits_to_ten_records(tmp_path: Path) -> None:
     assert first.has_next is True
     assert second.text == f"Разобранные\n\n1. Разобранная 1\nТеги: {tag.name}"
     assert second.has_previous is True
+
+
+def test_build_processed_review_returns_text_and_tags(tmp_path: Path) -> None:
+    capture, inbox, _engine = _services(tmp_path)
+    tags = inbox.list_tags()
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Разобранная карточка",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    assert inbox.save_tags(record_id=captured.record_id, tag_ids=(tags[0].tag_id,)) is True
+
+    assert inbox.build_processed_review(captured.record_id) == (
+        f"Разобранная карточка\n\nТеги: {tags[0].name}"
+    )
+
+
+def test_processed_review_keyboard_keeps_record_and_page_context() -> None:
+    keyboard = build_processed_review_keyboard(record_id=42, page=3)
+
+    assert keyboard.inline_keyboard[0][0].callback_data == "processed:edit_text:42:3"
+    assert keyboard.inline_keyboard[1][0].callback_data == "processed:tags:42:3"
+    assert keyboard.inline_keyboard[2][0].callback_data == "processed:task:42:3"
+    assert keyboard.inline_keyboard[3][0].callback_data == "processed:trash:42:3"
+    assert keyboard.inline_keyboard[4][0].callback_data == "processed:page:3"
 
 
 def test_build_review_returns_selected_inbox_record_text(tmp_path: Path) -> None:

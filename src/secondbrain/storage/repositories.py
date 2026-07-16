@@ -480,6 +480,33 @@ class InboxRepository:
             for row in rows
         ]
 
+    def get_processed_record(self, record_id: int) -> ProcessedRecord | None:
+        with self._engine.connect() as connection:
+            row = connection.execute(
+                select(
+                    records.c.id,
+                    records.c.display_text,
+                    func.group_concat(tags.c.name, ", ").label("tag_names"),
+                )
+                .select_from(records)
+                .outerjoin(record_tags, record_tags.c.record_id == records.c.id)
+                .outerjoin(tags, tags.c.id == record_tags.c.tag_id)
+                .where(
+                    records.c.id == record_id,
+                    records.c.record_type == "thought",
+                    records.c.lifecycle_state == "processed",
+                    records.c.trashed_at.is_(None),
+                )
+                .group_by(records.c.id)
+            ).one_or_none()
+        if row is None:
+            return None
+        return ProcessedRecord(
+            record_id=row.id,
+            display_text=row.display_text,
+            tags=tuple(tag for tag in (row.tag_names or "").split(", ") if tag),
+        )
+
 
 class EveningReminderRepository:
     def __init__(self, engine: Engine) -> None:

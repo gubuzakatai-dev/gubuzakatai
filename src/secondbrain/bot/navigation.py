@@ -7,6 +7,7 @@ from secondbrain.services.inbox import (
     InboxService,
     build_inbox_keyboard,
     build_processed_keyboard,
+    build_processed_review_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
@@ -61,6 +62,25 @@ def register_navigation_handlers(
         await query.answer()
         page = inbox_service.build_processed_page(_page_from_callback(query.data))
         await query.edit_message_text(page.text, reply_markup=build_processed_keyboard(page))
+
+    async def open_processed_record_callback(
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        record_id, page = _record_and_page_from_callback(query.data)
+        text = inbox_service.build_processed_review(record_id)
+        if text is None:
+            page_data = inbox_service.build_processed_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_processed_keyboard(page_data))
+            return
+        await query.edit_message_text(
+            text,
+            reply_markup=build_processed_review_keyboard(record_id, page),
+        )
 
     async def open_record_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -246,6 +266,10 @@ def register_navigation_handlers(
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(
         CallbackQueryHandler(open_processed_callback, pattern="^(folders:processed|processed:page:)"),
+        group=0,
+    )
+    application.add_handler(
+        CallbackQueryHandler(open_processed_record_callback, pattern="^processed:record:"),
         group=0,
     )
     application.add_handler(CallbackQueryHandler(open_inbox_callback, pattern="^inbox:page:"), group=0)

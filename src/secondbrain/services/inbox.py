@@ -89,6 +89,13 @@ class InboxService:
             has_next=end < len(records),
         )
 
+    def build_processed_review(self, record_id: int) -> str | None:
+        record = self._repository.get_processed_record(record_id)
+        if record is None:
+            return None
+        tag_line = f"Теги: {', '.join(record.tags)}" if record.tags else "Теги: нет"
+        return f"{record.display_text}\n\n{tag_line}"
+
     def build_review(self, record_id: int) -> str | None:
         record = self._repository.get_inbox_record(record_id)
         if record is None:
@@ -174,6 +181,18 @@ def build_processed_keyboard(page: ProcessedPage) -> InlineKeyboardMarkup:
         rows.append(navigation)
     rows.append([InlineKeyboardButton("Назад", callback_data="folders:open")])
     return InlineKeyboardMarkup(rows)
+
+
+def build_processed_review_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Изменить текст", callback_data=f"processed:edit_text:{record_id}:{page}")],
+            [InlineKeyboardButton("Изменить теги", callback_data=f"processed:tags:{record_id}:{page}")],
+            [InlineKeyboardButton("Сделать задачей", callback_data=f"processed:task:{record_id}:{page}")],
+            [InlineKeyboardButton("Удалить в корзину", callback_data=f"processed:trash:{record_id}:{page}")],
+            [InlineKeyboardButton("Назад", callback_data=f"processed:page:{page}")],
+        ]
+    )
 
 
 def build_record_review_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
