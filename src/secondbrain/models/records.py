@@ -50,6 +50,22 @@ class ProcessedPage:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskRecord:
+    record_id: int
+    display_text: str
+    completed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TaskPage:
+    text: str
+    record_ids: tuple[int, ...]
+    page: int
+    has_previous: bool
+    has_next: bool
+
+
+@dataclass(frozen=True, slots=True)
 class InboxNextReview:
     page: InboxPage
     record_id: int | None

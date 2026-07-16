@@ -12,6 +12,7 @@ from secondbrain.models.records import (
     ProcessedRecord,
     ReviewRecord,
     TagOption,
+    TaskRecord,
 )
 from secondbrain.storage.database import transaction
 from secondbrain.storage.schema import (
@@ -778,3 +779,34 @@ class EveningReminderRepository:
         if row is None:
             return None
         return row.telegram_message_id
+
+
+class TaskRepository:
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def list_tasks(self, task_list: str) -> list[TaskRecord]:
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    records.c.id,
+                    records.c.display_text,
+                    records.c.completed_at,
+                )
+                .where(
+                    records.c.record_type == "task",
+                    records.c.lifecycle_state == "task",
+                    records.c.task_list == task_list,
+                    records.c.trashed_at.is_(None),
+                    records.c.hidden_at.is_(None),
+                )
+                .order_by(records.c.task_active_since, records.c.id)
+            ).all()
+        return [
+            TaskRecord(
+                record_id=row.id,
+                display_text=row.display_text,
+                completed=row.completed_at is not None,
+            )
+            for row in rows
+        ]

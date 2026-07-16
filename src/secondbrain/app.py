@@ -16,12 +16,14 @@ from secondbrain.services.evening_reminder import (
 )
 from secondbrain.services.inbox import InboxService
 from secondbrain.services.link_metadata import LinkMetadataService
+from secondbrain.services.tasks import TaskService
 from secondbrain.storage.database import create_database_engine, initialize_database
 from secondbrain.storage.repositories import (
     CaptureRepository,
     EveningReminderRepository,
     InboxRepository,
     LinkMetadataRepository,
+    TaskRepository,
 )
 
 LINK_METADATA_JOB_NAME = "link_metadata"
@@ -37,6 +39,7 @@ def build_application(
     link_metadata_service: LinkMetadataService | None = None,
     inbox_service: InboxService | None = None,
     evening_reminder_service: EveningReminderService | None = None,
+    task_service: TaskService | None = None,
 ) -> Application:
     """Build the Telegram application without starting network operations."""
     application = Application.builder().token(settings.telegram_bot_token).build()
@@ -46,6 +49,7 @@ def build_application(
             allowed_user_id=settings.telegram_allowed_user_id,
             inbox_service=inbox_service,
             evening_reminder_service=evening_reminder_service,
+            task_service=task_service,
         )
     if capture_service is not None:
         register_capture_handlers(
@@ -172,6 +176,7 @@ def main() -> None:
     link_metadata_service = LinkMetadataService(LinkMetadataRepository(engine))
     inbox_repository = InboxRepository(engine)
     inbox_service = InboxService(inbox_repository)
+    task_service = TaskService(TaskRepository(engine))
     evening_reminder_service = EveningReminderService(
         reminder_repository=EveningReminderRepository(engine),
         inbox_repository=inbox_repository,
@@ -182,6 +187,7 @@ def main() -> None:
         link_metadata_service,
         inbox_service,
         evening_reminder_service,
+        task_service,
     )
     logging.getLogger(__name__).info("SecondBrain запускает Telegram polling")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
