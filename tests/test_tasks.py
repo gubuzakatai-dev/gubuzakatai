@@ -188,6 +188,39 @@ def test_task_moves_to_tomorrow_without_resetting_active_since(tmp_path: Path) -
     assert row.task_active_since == before
 
 
+def test_task_moves_to_week_without_resetting_active_since(tmp_path: Path) -> None:
+    engine = create_database_engine(tmp_path / "test.sqlite3")
+    initialize_database(engine)
+    capture = CaptureService(CaptureRepository(engine))
+    tasks = TaskService(TaskRepository(engine))
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Сегодня перенести",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    with engine.connect() as connection:
+        before = connection.scalar(
+            select(records.c.task_active_since).where(records.c.id == captured.record_id)
+        )
+
+    assert tasks.move_task(record_id=captured.record_id, target_task_list="week") is True
+
+    today = tasks.build_page("today")
+    week = tasks.build_page("week")
+    assert today.record_ids == ()
+    assert week.record_ids == (captured.record_id,)
+    assert week.text == "Неделя\n\n1. ☐ Перенести"
+    with engine.connect() as connection:
+        row = connection.execute(
+            select(records.c.task_list, records.c.task_active_since).where(
+                records.c.id == captured.record_id
+            )
+        ).one()
+    assert row.task_list == "week"
+    assert row.task_active_since == before
+
+
 def test_today_page_shows_completed_flag(tmp_path: Path) -> None:
     engine = create_database_engine(tmp_path / "test.sqlite3")
     initialize_database(engine)
