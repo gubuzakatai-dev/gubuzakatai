@@ -289,3 +289,55 @@ def test_today_rollover_hides_only_completed_tasks_before_cutoff(tmp_path: Path)
     assert page.record_ids == (active.record_id, fresh_done.record_id)
     assert page.text == "Сегодня\n\n1. ☐ Активная\n\n2. ✅ Свежая выполненная"
     assert tasks.process_today_rollover(now=datetime(2026, 7, 16, 21, 6, tzinfo=UTC)) is None
+
+
+def test_daily_rollover_moves_active_tomorrow_tasks_to_today(tmp_path: Path) -> None:
+    engine = create_database_engine(tmp_path / "test.sqlite3")
+    initialize_database(engine)
+    capture = CaptureService(CaptureRepository(engine))
+    tasks = TaskService(TaskRepository(engine))
+    active = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Завтра активная",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    done = capture.capture_text(
+        chat_id=10,
+        message_id=2,
+        raw_text="Завтра выполненная",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 1, tzinfo=UTC),
+    )
+    with engine.begin() as connection:
+        before = connection.scalar(
+            select(records.c.task_active_since).where(records.c.id == active.record_id)
+        )
+        connection.execute(
+            update(records)
+            .where(records.c.id == done.record_id)
+            .values(completed_at="2026-07-16T20:59:00+00:00")
+        )
+
+    changed_count = tasks.process_today_rollover(
+        now=datetime(2026, 7, 16, 21, 5, tzinfo=UTC),
+    )
+
+    assert changed_count == 2
+    today = tasks.build_page("today")
+    tomorrow = tasks.build_page("tomorrow")
+    assert today.record_ids == (active.record_id,)
+    assert today.text == "Сегодня\n\n1. ☐ Активная"
+    assert tomorrow.record_ids == ()
+    with engine.connect() as connection:
+        active_row = connection.execute(
+            select(records.c.task_list, records.c.task_active_since).where(
+                records.c.id == active.record_id
+            )
+        ).one()
+        done_row = connection.execute(
+            select(records.c.task_list, records.c.hidden_at).where(records.c.id == done.record_id)
+        ).one()
+    assert active_row.task_list == "today"
+    assert active_row.task_active_since == before
+    assert done_row.task_list == "tomorrow"
+    assert done_row.hidden_at is not None

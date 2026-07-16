@@ -907,7 +907,34 @@ class TaskRepository:
                 )
                 .values(hidden_at=changed_at, updated_at=changed_at)
             )
-            hidden_count = result.rowcount
+            hidden_today_count = result.rowcount
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.record_type == "task",
+                    records.c.lifecycle_state == "task",
+                    records.c.task_list == "tomorrow",
+                    records.c.completed_at.is_not(None),
+                    records.c.completed_at < cutoff_at,
+                    records.c.hidden_at.is_(None),
+                    records.c.trashed_at.is_(None),
+                )
+                .values(hidden_at=changed_at, updated_at=changed_at)
+            )
+            hidden_tomorrow_count = result.rowcount
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.record_type == "task",
+                    records.c.lifecycle_state == "task",
+                    records.c.task_list == "tomorrow",
+                    records.c.completed_at.is_(None),
+                    records.c.hidden_at.is_(None),
+                    records.c.trashed_at.is_(None),
+                )
+                .values(task_list="today", updated_at=changed_at)
+            )
+            moved_tomorrow_count = result.rowcount
             connection.execute(
                 update(scheduled_runs)
                 .where(
@@ -917,11 +944,16 @@ class TaskRepository:
                 .values(
                     status="succeeded",
                     details_json=json.dumps(
-                        {"cutoff_at": cutoff_at, "hidden_count": hidden_count},
+                        {
+                            "cutoff_at": cutoff_at,
+                            "hidden_today_count": hidden_today_count,
+                            "hidden_tomorrow_count": hidden_tomorrow_count,
+                            "moved_tomorrow_count": moved_tomorrow_count,
+                        },
                         sort_keys=True,
                     ),
                     error_code=None,
                     finished_at=changed_at,
                 )
             )
-        return hidden_count
+        return hidden_today_count + hidden_tomorrow_count + moved_tomorrow_count
