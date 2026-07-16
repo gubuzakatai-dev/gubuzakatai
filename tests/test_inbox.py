@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, select
 
 from secondbrain.services.capture import CaptureService
 from secondbrain.services.inbox import (
@@ -11,10 +11,11 @@ from secondbrain.services.inbox import (
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
     build_task_list_keyboard,
+    build_trash_confirmation_keyboard,
 )
 from secondbrain.storage.database import create_database_engine, initialize_database
 from secondbrain.storage.repositories import CaptureRepository, InboxRepository
-from secondbrain.storage.schema import record_tags, records
+from secondbrain.storage.schema import record_tags, records, source_messages
 
 
 def _services(tmp_path: Path) -> tuple[CaptureService, InboxService, Engine]:
@@ -173,3 +174,34 @@ def test_save_tags_marks_record_processed_and_assigns_tags(tmp_path: Path) -> No
     assert record.record_type == "thought"
     assert record.lifecycle_state == "processed"
     assert tuple(row.tag_id for row in assigned) == tuple(sorted(tag_ids))
+
+
+def test_trash_confirmation_keyboard_keeps_record_and_page_context() -> None:
+    keyboard = build_trash_confirmation_keyboard(record_id=42, page=3)
+
+    assert keyboard.inline_keyboard[0][0].text == "Удалить"
+    assert keyboard.inline_keyboard[0][0].callback_data == "inbox:trash_confirm:42:3"
+    assert keyboard.inline_keyboard[1][0].text == "Отмена"
+    assert keyboard.inline_keyboard[1][0].callback_data == "inbox:review:42:page:3"
+
+
+def test_move_inbox_record_to_trash_preserves_source_and_previous_state(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="В корзину",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    assert inbox.move_to_trash(record_id=captured.record_id) is True
+    assert inbox.count() == 0
+
+    with engine.connect() as connection:
+        record = connection.execute(select(records)).one()
+        source_count = connection.scalar(select(func.count()).select_from(source_messages))
+    assert record.id == captured.record_id
+    assert record.lifecycle_state == "inbox"
+    assert record.trashed_at is not None
+    assert record.pre_trash_lifecycle_state == "inbox"
+    assert source_count == 1

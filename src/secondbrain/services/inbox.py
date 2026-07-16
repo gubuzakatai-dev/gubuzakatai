@@ -74,6 +74,9 @@ class InboxService:
             changed_at=utc_now_text(),
         )
 
+    def move_to_trash(self, *, record_id: int) -> bool:
+        return self._repository.move_inbox_to_trash(record_id=record_id, trashed_at=utc_now_text())
+
 
 def build_inbox_keyboard(page: InboxPage) -> InlineKeyboardMarkup:
     if not page.record_ids:
@@ -149,3 +152,12 @@ def build_tag_selection_keyboard(
     rows.append([InlineKeyboardButton("Сохранить", callback_data=f"inbox:tag_save:{record_id}:{page}")])
     rows.append([InlineKeyboardButton("Назад", callback_data=f"inbox:review:{record_id}:page:{page}")])
     return InlineKeyboardMarkup(rows)
+
+
+def build_trash_confirmation_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Удалить", callback_data=f"inbox:trash_confirm:{record_id}:{page}")],
+            [InlineKeyboardButton("Отмена", callback_data=f"inbox:review:{record_id}:page:{page}")],
+        ]
+    )

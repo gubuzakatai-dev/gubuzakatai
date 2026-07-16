@@ -8,6 +8,7 @@ from secondbrain.services.inbox import (
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
     build_task_list_keyboard,
+    build_trash_confirmation_keyboard,
 )
 
 NAVIGATION_TEXTS = frozenset({"Папки"})
@@ -193,6 +194,43 @@ def register_navigation_handlers(
                 return
         await query.edit_message_text(next_page.text, reply_markup=build_inbox_keyboard(next_page))
 
+    async def open_trash_confirmation_callback(
+        update: Update, _context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        record_id, page = _record_and_page_from_callback(query.data)
+        text = inbox_service.build_review(record_id)
+        if text is None:
+            page_data = inbox_service.build_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
+            return
+        await query.edit_message_text(
+            f"{text}\n\nУдалить запись в корзину?",
+            reply_markup=build_trash_confirmation_keyboard(record_id, page),
+        )
+
+    async def confirm_trash_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, page = _record_and_page_from_callback(query.data)
+        moved = inbox_service.move_to_trash(record_id=record_id)
+        await query.answer("Удалено" if moved else "Запись уже недоступна")
+        next_page = inbox_service.build_page(page)
+        if next_page.record_ids:
+            next_record_id = next_page.record_ids[0]
+            text = inbox_service.build_review(next_record_id)
+            if text is not None:
+                await query.edit_message_text(
+                    text,
+                    reply_markup=build_record_review_keyboard(next_record_id, next_page.page),
+                )
+                return
+        await query.edit_message_text(next_page.text, reply_markup=build_inbox_keyboard(next_page))
+
     application.add_handler(MessageHandler(owner & filters.Regex("^Папки$"), open_folders), group=0)
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_inbox_callback, pattern="^inbox:page:"), group=0)
@@ -216,6 +254,12 @@ def register_navigation_handlers(
     )
     application.add_handler(
         CallbackQueryHandler(save_tags_callback, pattern="^inbox:tag_save:"), group=0
+    )
+    application.add_handler(
+        CallbackQueryHandler(confirm_trash_callback, pattern="^inbox:trash_confirm:"), group=0
+    )
+    application.add_handler(
+        CallbackQueryHandler(open_trash_confirmation_callback, pattern="^inbox:trash:"), group=0
     )
 
 

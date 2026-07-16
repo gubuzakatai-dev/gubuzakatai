@@ -401,3 +401,43 @@ class InboxRepository:
                 ],
             )
         return True
+
+    def move_inbox_to_trash(self, *, record_id: int, trashed_at: str) -> bool:
+        with transaction(self._engine) as connection:
+            existing = connection.execute(
+                select(
+                    records.c.lifecycle_state,
+                    records.c.task_list,
+                    records.c.completed_at,
+                    records.c.hidden_at,
+                ).where(
+                    records.c.id == record_id,
+                    records.c.lifecycle_state == "inbox",
+                    records.c.trashed_at.is_(None),
+                )
+            ).one_or_none()
+            if existing is None:
+                return False
+            connection.execute(
+                update(records)
+                .where(records.c.id == record_id)
+                .values(
+                    trashed_at=trashed_at,
+                    pre_trash_lifecycle_state=existing.lifecycle_state,
+                    pre_trash_task_list=existing.task_list,
+                    pre_trash_completed_at=existing.completed_at,
+                    pre_trash_hidden_at=existing.hidden_at,
+                    updated_at=trashed_at,
+                )
+            )
+            trash_rows = connection.execute(
+                select(records.c.id)
+                .where(records.c.trashed_at.is_not(None))
+                .order_by(records.c.trashed_at.desc(), records.c.id.desc())
+                .offset(30)
+            ).all()
+            if trash_rows:
+                connection.execute(
+                    records.delete().where(records.c.id.in_([row.id for row in trash_rows]))
+                )
+        return True
