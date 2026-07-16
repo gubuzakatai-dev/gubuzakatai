@@ -202,15 +202,16 @@ class LinkMetadataRepository:
     def mark_failed(
         self,
         *,
-        result_id: int,
+        pending: PendingLinkMetadata,
         error_code: str,
         error_message: str,
         finished_at: str,
+        retry: bool,
     ) -> None:
         with transaction(self._engine) as connection:
             connection.execute(
                 update(processing_results)
-                .where(processing_results.c.id == result_id)
+                .where(processing_results.c.id == pending.result_id)
                 .values(
                     status="failed",
                     error_code=error_code,
@@ -218,6 +219,18 @@ class LinkMetadataRepository:
                     finished_at=finished_at,
                 )
             )
+            if retry:
+                connection.execute(
+                    insert(processing_results).values(
+                        record_id=pending.record_id,
+                        source_message_id=pending.source_message_id,
+                        operation="link_metadata",
+                        status="pending",
+                        input_text=pending.url,
+                        attempt_no=pending.attempt_no + 1,
+                        created_at=finished_at,
+                    )
+                )
 
 
 def format_link_display(url: str, *, title: str | None, description: str | None) -> str:

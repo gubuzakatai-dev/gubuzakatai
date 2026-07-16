@@ -14,6 +14,13 @@ from secondbrain.storage.repositories import LinkMetadataRepository
 MAX_REDIRECTS = 5
 MAX_BYTES = 2 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 10
+TEMPORARY_ERROR_CODES = frozenset(
+    {
+        "temporary_dns_error",
+        "temporary_http_error",
+        "temporary_network_error",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,10 +59,11 @@ class LinkMetadataService:
             metadata = parse_html_metadata(fetched.body)
         except LinkMetadataError as error:
             self._repository.mark_failed(
-                result_id=pending.result_id,
+                pending=pending,
                 error_code=error.code,
                 error_message=error.message,
                 finished_at=utc_now_text(),
+                retry=error.code in TEMPORARY_ERROR_CODES,
             )
             return True
 
