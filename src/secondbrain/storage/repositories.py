@@ -610,6 +610,20 @@ class InboxRepository:
             )
         return True
 
+    def update_processed_text(self, *, record_id: int, display_text: str, changed_at: str) -> bool:
+        with transaction(self._engine) as connection:
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.id == record_id,
+                    records.c.record_type == "thought",
+                    records.c.lifecycle_state == "processed",
+                    records.c.trashed_at.is_(None),
+                )
+                .values(display_text=display_text, updated_at=changed_at)
+            )
+        return result.rowcount == 1
+
 
 class EveningReminderRepository:
     def __init__(self, engine: Engine) -> None:

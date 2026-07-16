@@ -52,6 +52,7 @@ def build_application(
             application,
             allowed_user_id=settings.telegram_allowed_user_id,
             capture_service=capture_service,
+            inbox_service=inbox_service,
         )
     if link_metadata_service is not None:
         register_link_metadata_job(application, link_metadata_service)

@@ -11,6 +11,7 @@ from secondbrain.services.inbox import (
     build_processed_review_keyboard,
     build_processed_tag_selection_keyboard,
     build_processed_task_list_keyboard,
+    build_processed_text_edit_keyboard,
     build_processed_trash_confirmation_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
@@ -210,6 +211,13 @@ def test_processed_trash_confirmation_keyboard_keeps_record_and_page_context() -
     assert keyboard.inline_keyboard[1][0].callback_data == "processed:record:42:page:3"
 
 
+def test_processed_text_edit_keyboard_returns_to_record() -> None:
+    keyboard = build_processed_text_edit_keyboard(record_id=42, page=3)
+
+    assert keyboard.inline_keyboard[0][0].text == "Отмена"
+    assert keyboard.inline_keyboard[0][0].callback_data == "processed:record:42:page:3"
+
+
 def test_update_processed_tags_replaces_tags_and_keeps_processed_state(tmp_path: Path) -> None:
     capture, inbox, engine = _services(tmp_path)
     tags = inbox.list_tags()
@@ -245,6 +253,28 @@ def test_update_processed_tags_requires_existing_tag(tmp_path: Path) -> None:
 
     assert inbox.update_processed_tags(record_id=captured.record_id, tag_ids=(9999,)) is False
     assert inbox.build_processed_review(captured.record_id) == f"Не снять все теги\n\nТеги: {tags[0].name}"
+
+
+def test_update_processed_text_changes_display_only(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    tags = inbox.list_tags()
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Исходный текст",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    assert inbox.save_tags(record_id=captured.record_id, tag_ids=(tags[0].tag_id,)) is True
+
+    assert inbox.update_processed_text(record_id=captured.record_id, display_text="Новый текст") is True
+
+    with engine.connect() as connection:
+        record = connection.execute(select(records)).one()
+        source = connection.execute(select(source_messages)).one()
+    assert record.display_text == "Новый текст"
+    assert record.lifecycle_state == "processed"
+    assert source.raw_text == "Исходный текст"
+    assert inbox.build_processed_review(captured.record_id) == f"Новый текст\n\nТеги: {tags[0].name}"
 
 
 def test_move_processed_record_to_trash_preserves_tags_and_previous_state(tmp_path: Path) -> None:

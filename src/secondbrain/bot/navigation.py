@@ -10,6 +10,7 @@ from secondbrain.services.inbox import (
     build_processed_review_keyboard,
     build_processed_tag_selection_keyboard,
     build_processed_task_list_keyboard,
+    build_processed_text_edit_keyboard,
     build_processed_trash_confirmation_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
@@ -19,6 +20,7 @@ from secondbrain.services.inbox import (
 )
 
 NAVIGATION_TEXTS = frozenset({"Папки"})
+PROCESSED_EDIT_TEXT_KEY = "processed_edit_text"
 
 
 def register_navigation_handlers(
@@ -83,6 +85,26 @@ def register_navigation_handlers(
         await query.edit_message_text(
             text,
             reply_markup=build_processed_review_keyboard(record_id, page),
+        )
+
+    async def open_processed_text_edit_callback(
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        record_id, page = _record_and_page_from_callback(query.data)
+        text = inbox_service.build_processed_review(record_id)
+        if text is None:
+            page_data = inbox_service.build_processed_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_processed_keyboard(page_data))
+            return
+        context.user_data[PROCESSED_EDIT_TEXT_KEY] = {"record_id": record_id, "page": page}
+        await query.edit_message_text(
+            f"{text}\n\nОтправьте новый текст для этой записи.",
+            reply_markup=build_processed_text_edit_keyboard(record_id, page),
         )
 
     async def open_processed_task_lists_callback(
@@ -411,6 +433,10 @@ def register_navigation_handlers(
     )
     application.add_handler(
         CallbackQueryHandler(open_processed_record_callback, pattern="^processed:record:"),
+        group=0,
+    )
+    application.add_handler(
+        CallbackQueryHandler(open_processed_text_edit_callback, pattern="^processed:edit_text:"),
         group=0,
     )
     application.add_handler(
