@@ -52,6 +52,9 @@ def test_today_page_lists_oldest_today_tasks_first(tmp_path: Path) -> None:
 
     assert page.record_ids == (earlier.record_id, later.record_id)
     assert page.text == "Сегодня\n\n1. ☐ Ранняя\n\n2. ☐ Поздняя"
+    keyboard = build_task_page_keyboard("today", page)
+    button_texts = [row[0].text for row in keyboard.inline_keyboard]
+    assert "➕ Добавить задачу" not in button_texts
 
 
 def test_today_page_shows_completed_flag(tmp_path: Path) -> None:
