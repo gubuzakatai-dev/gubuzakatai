@@ -6,6 +6,7 @@ from secondbrain.services.inbox import (
     build_inbox_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
+    build_tag_selection_keyboard,
     build_task_list_keyboard,
 )
 
@@ -116,6 +117,82 @@ def register_navigation_handlers(
                 return
         await query.edit_message_text(next_page.text, reply_markup=build_inbox_keyboard(next_page))
 
+    async def open_tag_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        record_id, page = _record_and_page_from_callback(query.data)
+        text = inbox_service.build_review(record_id)
+        if text is None:
+            page_data = inbox_service.build_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
+            return
+        selected = _selected_tags(context, record_id)
+        await query.edit_message_text(
+            text,
+            reply_markup=build_tag_selection_keyboard(
+                record_id=record_id,
+                page=page,
+                tags=inbox_service.list_tags(),
+                selected_tag_ids=selected,
+            ),
+        )
+
+    async def toggle_tag_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, tag_id, page = _tag_toggle_from_callback(query.data)
+        selected = _selected_tags(context, record_id)
+        if tag_id in selected:
+            selected.remove(tag_id)
+        else:
+            selected.add(tag_id)
+        await query.answer()
+        text = inbox_service.build_review(record_id)
+        if text is None:
+            page_data = inbox_service.build_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
+            return
+        await query.edit_message_text(
+            text,
+            reply_markup=build_tag_selection_keyboard(
+                record_id=record_id,
+                page=page,
+                tags=inbox_service.list_tags(),
+                selected_tag_ids=selected,
+            ),
+        )
+
+    async def save_tags_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, page = _record_and_page_from_callback(query.data)
+        selected = _selected_tags(context, record_id)
+        if not selected:
+            await query.answer("Выберите хотя бы один тег")
+            return
+        saved = inbox_service.save_tags(record_id=record_id, tag_ids=tuple(sorted(selected)))
+        context.user_data.pop(_tag_session_key(record_id), None)
+        await query.answer("Сохранено")
+        if not saved:
+            page_data = inbox_service.build_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
+            return
+        next_page = inbox_service.build_page(page)
+        if next_page.record_ids:
+            next_record_id = next_page.record_ids[0]
+            text = inbox_service.build_review(next_record_id)
+            if text is not None:
+                await query.edit_message_text(
+                    text,
+                    reply_markup=build_record_review_keyboard(next_record_id, next_page.page),
+                )
+                return
+        await query.edit_message_text(next_page.text, reply_markup=build_inbox_keyboard(next_page))
+
     application.add_handler(MessageHandler(owner & filters.Regex("^Папки$"), open_folders), group=0)
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_inbox_callback, pattern="^inbox:page:"), group=0)
@@ -130,6 +207,15 @@ def register_navigation_handlers(
     )
     application.add_handler(
         CallbackQueryHandler(convert_to_task_callback, pattern="^inbox:task_list:"), group=0
+    )
+    application.add_handler(
+        CallbackQueryHandler(open_tag_selection_callback, pattern="^inbox:tags:"), group=0
+    )
+    application.add_handler(
+        CallbackQueryHandler(toggle_tag_callback, pattern="^inbox:tag_toggle:"), group=0
+    )
+    application.add_handler(
+        CallbackQueryHandler(save_tags_callback, pattern="^inbox:tag_save:"), group=0
     )
 
 
@@ -179,3 +265,26 @@ def _task_list_from_callback(data: str | None) -> tuple[int, str | None, int]:
     if task_list not in {"today", "tomorrow", "week"}:
         return record_id, None, page
     return record_id, task_list, page
+
+
+def _tag_toggle_from_callback(data: str | None) -> tuple[int, int, int]:
+    if data is None:
+        return 0, 0, 0
+    parts = data.split(":")
+    try:
+        return int(parts[2]), int(parts[3]), int(parts[4])
+    except (IndexError, ValueError):
+        return 0, 0, 0
+
+
+def _selected_tags(context: ContextTypes.DEFAULT_TYPE, record_id: int) -> set[int]:
+    key = _tag_session_key(record_id)
+    selected = context.user_data.setdefault(key, set())
+    if not isinstance(selected, set):
+        selected = set()
+        context.user_data[key] = selected
+    return selected
+
+
+def _tag_session_key(record_id: int) -> str:
+    return f"inbox_tags:{record_id}"

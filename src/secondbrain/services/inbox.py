@@ -1,6 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from secondbrain.models.records import InboxPage
+from secondbrain.models.records import InboxPage, TagOption
 from secondbrain.storage.database import utc_now_text
 from secondbrain.storage.repositories import InboxRepository
 
@@ -64,6 +64,16 @@ class InboxService:
             changed_at=utc_now_text(),
         )
 
+    def list_tags(self) -> list[TagOption]:
+        return self._repository.list_tags()
+
+    def save_tags(self, *, record_id: int, tag_ids: tuple[int, ...]) -> bool:
+        return self._repository.mark_inbox_processed_with_tags(
+            record_id=record_id,
+            tag_ids=tag_ids,
+            changed_at=utc_now_text(),
+        )
+
 
 def build_inbox_keyboard(page: InboxPage) -> InlineKeyboardMarkup:
     if not page.record_ids:
@@ -118,3 +128,24 @@ def build_task_list_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton("Назад", callback_data=f"inbox:review:{record_id}:page:{page}")],
         ]
     )
+
+
+def build_tag_selection_keyboard(
+    *,
+    record_id: int,
+    page: int,
+    tags: list[TagOption],
+    selected_tag_ids: set[int],
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                f"{'✓ ' if tag.tag_id in selected_tag_ids else ''}{tag.name}",
+                callback_data=f"inbox:tag_toggle:{record_id}:{tag.tag_id}:{page}",
+            )
+        ]
+        for tag in tags
+    ]
+    rows.append([InlineKeyboardButton("Сохранить", callback_data=f"inbox:tag_save:{record_id}:{page}")])
+    rows.append([InlineKeyboardButton("Назад", callback_data=f"inbox:review:{record_id}:page:{page}")])
+    return InlineKeyboardMarkup(rows)

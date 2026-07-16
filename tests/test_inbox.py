@@ -9,11 +9,12 @@ from secondbrain.services.inbox import (
     build_inbox_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
+    build_tag_selection_keyboard,
     build_task_list_keyboard,
 )
 from secondbrain.storage.database import create_database_engine, initialize_database
 from secondbrain.storage.repositories import CaptureRepository, InboxRepository
-from secondbrain.storage.schema import records
+from secondbrain.storage.schema import record_tags, records
 
 
 def _services(tmp_path: Path) -> tuple[CaptureService, InboxService, Engine]:
@@ -131,3 +132,44 @@ def test_convert_inbox_record_to_task_updates_existing_record(tmp_path: Path) ->
     assert row.lifecycle_state == "task"
     assert row.task_list == "tomorrow"
     assert row.task_active_since is not None
+
+
+def test_tag_selection_keyboard_marks_selected_tags(tmp_path: Path) -> None:
+    _capture, inbox, _engine = _services(tmp_path)
+    tags = inbox.list_tags()
+
+    keyboard = build_tag_selection_keyboard(
+        record_id=42,
+        page=3,
+        tags=tags[:2],
+        selected_tag_ids={tags[0].tag_id},
+    )
+
+    assert keyboard.inline_keyboard[0][0].text == f"✓ {tags[0].name}"
+    assert keyboard.inline_keyboard[0][0].callback_data == f"inbox:tag_toggle:42:{tags[0].tag_id}:3"
+    assert keyboard.inline_keyboard[1][0].text == tags[1].name
+    assert keyboard.inline_keyboard[-2][0].callback_data == "inbox:tag_save:42:3"
+
+
+def test_save_tags_marks_record_processed_and_assigns_tags(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Разобрать по тегам",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    tag_ids = tuple(tag.tag_id for tag in inbox.list_tags()[:2])
+
+    assert inbox.save_tags(record_id=captured.record_id, tag_ids=tag_ids) is True
+    assert inbox.count() == 0
+
+    with engine.connect() as connection:
+        record = connection.execute(select(records)).one()
+        assigned = connection.execute(
+            select(record_tags.c.tag_id).order_by(record_tags.c.tag_id)
+        ).all()
+    assert record.id == captured.record_id
+    assert record.record_type == "thought"
+    assert record.lifecycle_state == "processed"
+    assert tuple(row.tag_id for row in assigned) == tuple(sorted(tag_ids))

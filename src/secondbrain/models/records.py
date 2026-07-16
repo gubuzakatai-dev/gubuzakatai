@@ -37,3 +37,9 @@ class InboxPage:
 class ReviewRecord:
     record_id: int
     display_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class TagOption:
+    tag_id: int
+    name: str

@@ -4,9 +4,15 @@ from dataclasses import dataclass
 from sqlalchemy import Engine, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
-from secondbrain.models.records import CapturedRecord, InboxRecord, PendingConfirmation, ReviewRecord
+from secondbrain.models.records import (
+    CapturedRecord,
+    InboxRecord,
+    PendingConfirmation,
+    ReviewRecord,
+    TagOption,
+)
 from secondbrain.storage.database import transaction
-from secondbrain.storage.schema import processing_results, records, source_messages
+from secondbrain.storage.schema import processing_results, record_tags, records, source_messages, tags
 
 
 class CaptureRepository:
@@ -353,3 +359,45 @@ class InboxRepository:
                 )
             )
         return result.rowcount == 1
+
+    def list_tags(self) -> list[TagOption]:
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(tags.c.id, tags.c.name).order_by(tags.c.sort_order, tags.c.id)
+            ).all()
+        return [TagOption(tag_id=row.id, name=row.name) for row in rows]
+
+    def mark_inbox_processed_with_tags(
+        self,
+        *,
+        record_id: int,
+        tag_ids: tuple[int, ...],
+        changed_at: str,
+    ) -> bool:
+        with transaction(self._engine) as connection:
+            existing_tag_ids = {
+                row.id for row in connection.execute(select(tags.c.id).where(tags.c.id.in_(tag_ids)))
+            }
+            selected_tag_ids = tuple(tag_id for tag_id in tag_ids if tag_id in existing_tag_ids)
+            if not selected_tag_ids:
+                return False
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.id == record_id,
+                    records.c.lifecycle_state == "inbox",
+                    records.c.trashed_at.is_(None),
+                )
+                .values(lifecycle_state="processed", updated_at=changed_at)
+            )
+            if result.rowcount != 1:
+                return False
+            connection.execute(record_tags.delete().where(record_tags.c.record_id == record_id))
+            connection.execute(
+                insert(record_tags),
+                [
+                    {"record_id": record_id, "tag_id": tag_id, "assigned_at": changed_at}
+                    for tag_id in selected_tag_ids
+                ],
+            )
+        return True
