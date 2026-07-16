@@ -99,3 +99,43 @@ def test_today_page_limits_to_ten_tasks(tmp_path: Path) -> None:
     assert second.has_previous is True
     keyboard = build_task_page_keyboard("today", first)
     assert keyboard.inline_keyboard[-2][0].callback_data == "tasks:today:page:1"
+
+
+def test_toggle_today_task_completion_sets_and_clears_completed_at(tmp_path: Path) -> None:
+    capture, tasks = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Сегодня сделать",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    assert tasks.toggle_completion(record_id=captured.record_id, task_list="today") is True
+    completed_page = tasks.build_page("today")
+    assert completed_page.text == "Сегодня\n\n1. ✅ Сделать"
+    completed_keyboard = build_task_page_keyboard("today", completed_page)
+    assert completed_keyboard.inline_keyboard[0][0].text == "✅ 1"
+    assert completed_keyboard.inline_keyboard[0][0].callback_data == (
+        f"tasks:today:record:{captured.record_id}:page:0"
+    )
+
+    assert tasks.toggle_completion(record_id=captured.record_id, task_list="today") is True
+    active_page = tasks.build_page("today")
+    assert active_page.text == "Сегодня\n\n1. ☐ Сделать"
+    active_keyboard = build_task_page_keyboard("today", active_page)
+    assert active_keyboard.inline_keyboard[0][0].text == "☐ 1"
+
+
+def test_toggle_completion_ignores_other_task_list(tmp_path: Path) -> None:
+    capture, tasks = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Сегодня сделать",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    assert tasks.toggle_completion(record_id=captured.record_id, task_list="tomorrow") is False
+
+    page = tasks.build_page("today")
+    assert page.text == "Сегодня\n\n1. ☐ Сделать"

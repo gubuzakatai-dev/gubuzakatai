@@ -60,6 +60,7 @@ class TaskRecord:
 class TaskPage:
     text: str
     record_ids: tuple[int, ...]
+    completed: tuple[bool, ...]
     page: int
     has_previous: bool
     has_next: bool

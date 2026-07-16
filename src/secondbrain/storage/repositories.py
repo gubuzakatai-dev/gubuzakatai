@@ -810,3 +810,27 @@ class TaskRepository:
             )
             for row in rows
         ]
+
+    def toggle_completion(self, *, record_id: int, task_list: str, changed_at: str) -> bool:
+        with transaction(self._engine) as connection:
+            row = connection.execute(
+                select(records.c.completed_at).where(
+                    records.c.id == record_id,
+                    records.c.record_type == "task",
+                    records.c.lifecycle_state == "task",
+                    records.c.task_list == task_list,
+                    records.c.trashed_at.is_(None),
+                    records.c.hidden_at.is_(None),
+                )
+            ).one_or_none()
+            if row is None:
+                return False
+            connection.execute(
+                update(records)
+                .where(records.c.id == record_id)
+                .values(
+                    completed_at=None if row.completed_at is not None else changed_at,
+                    updated_at=changed_at,
+                )
+            )
+        return True

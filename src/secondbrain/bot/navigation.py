@@ -77,6 +77,18 @@ def register_navigation_handlers(
         page = task_service.build_page("today", _page_from_callback(query.data))
         await query.edit_message_text(page.text, reply_markup=build_task_page_keyboard("today", page))
 
+    async def toggle_today_task_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        if task_service is None:
+            return
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        task_list, record_id, page_number = _task_record_from_callback(query.data)
+        toggled = task_service.toggle_completion(record_id=record_id, task_list=task_list)
+        await query.answer("Обновлено" if toggled else "Задача уже недоступна")
+        page = task_service.build_page(task_list, page_number)
+        await query.edit_message_text(page.text, reply_markup=build_task_page_keyboard(task_list, page))
+
     async def open_inbox_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         if query is None or query.message is None:
@@ -457,6 +469,10 @@ def register_navigation_handlers(
             CallbackQueryHandler(open_today_callback, pattern="^tasks:today:page:"),
             group=0,
         )
+        application.add_handler(
+            CallbackQueryHandler(toggle_today_task_callback, pattern="^tasks:today:record:"),
+            group=0,
+        )
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(
         CallbackQueryHandler(open_processed_callback, pattern="^(folders:processed|processed:page:)"),
@@ -628,6 +644,21 @@ def _task_list_from_callback(data: str | None) -> tuple[int, str | None, int]:
     if task_list not in {"today", "tomorrow", "week"}:
         return record_id, None, page
     return record_id, task_list, page
+
+
+def _task_record_from_callback(data: str | None) -> tuple[str, int, int]:
+    if data is None:
+        return "today", 0, 0
+    parts = data.split(":")
+    try:
+        task_list = parts[1]
+        record_id = int(parts[3])
+        page = int(parts[5])
+    except (IndexError, ValueError):
+        return "today", 0, 0
+    if task_list not in {"today", "tomorrow", "week"}:
+        return "today", record_id, page
+    return task_list, record_id, page
 
 
 def _tag_toggle_from_callback(data: str | None) -> tuple[int, int, int]:
