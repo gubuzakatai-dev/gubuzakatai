@@ -57,6 +57,40 @@ def test_today_page_lists_oldest_today_tasks_first(tmp_path: Path) -> None:
     assert "➕ Добавить задачу" not in button_texts
 
 
+def test_tomorrow_page_lists_only_tomorrow_tasks(tmp_path: Path) -> None:
+    capture, tasks = _services(tmp_path)
+    earlier = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Завтра ранняя",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    later = capture.capture_text(
+        chat_id=10,
+        message_id=2,
+        raw_text="Завтра поздняя",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 1, tzinfo=UTC),
+    )
+    capture.capture_text(
+        chat_id=10,
+        message_id=3,
+        raw_text="Сегодня не завтра",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 2, tzinfo=UTC),
+    )
+
+    page = tasks.build_page("tomorrow")
+
+    assert page.record_ids == (earlier.record_id, later.record_id)
+    assert page.text == "Завтра\n\n1. ☐ Ранняя\n\n2. ☐ Поздняя"
+    keyboard = build_task_page_keyboard("tomorrow", page)
+    assert keyboard.inline_keyboard[0][0].text == "☐ 1"
+    assert keyboard.inline_keyboard[0][0].callback_data == (
+        f"tasks:tomorrow:record:{earlier.record_id}:page:0"
+    )
+    button_texts = [row[0].text for row in keyboard.inline_keyboard]
+    assert "➕ Добавить задачу" not in button_texts
+
+
 def test_today_page_shows_completed_flag(tmp_path: Path) -> None:
     engine = create_database_engine(tmp_path / "test.sqlite3")
     initialize_database(engine)
