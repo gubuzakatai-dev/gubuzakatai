@@ -117,6 +117,13 @@ class TaskService:
             )
         return None
 
+    def save_stale_prompt_message_id(self, *, record_id: int, message_id: int) -> bool:
+        return self._repository.save_stale_prompt_message_id(
+            record_id=record_id,
+            message_id=message_id,
+            changed_at=utc_now_text(),
+        )
+
 
 def build_task_page_keyboard(task_list: str, page: TaskPage) -> InlineKeyboardMarkup:
     if not page.record_ids:
@@ -145,6 +152,22 @@ def build_task_page_keyboard(task_list: str, page: TaskPage) -> InlineKeyboardMa
         rows.append(navigation)
     rows.append([InlineKeyboardButton("Назад", callback_data="main:open")])
     return InlineKeyboardMarkup(rows)
+
+
+def build_stale_task_prompt_text(prompt: StaleTaskPrompt) -> str:
+    return f"Задача давно активна:\n\n{prompt.display_text}\n\nЧто с ней сделать?"
+
+
+def build_stale_task_prompt_keyboard(record_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Оставить в Сегодня", callback_data=f"stale:move:{record_id}:today")],
+            [InlineKeyboardButton("Перенести на Завтра", callback_data=f"stale:move:{record_id}:tomorrow")],
+            [InlineKeyboardButton("Перенести на Неделю", callback_data=f"stale:move:{record_id}:week")],
+            [InlineKeyboardButton("Отметить выполненной", callback_data=f"stale:done:{record_id}")],
+            [InlineKeyboardButton("В корзину", callback_data=f"stale:trash:{record_id}")],
+        ]
+    )
 
 
 def _aware_now(now: datetime | None) -> datetime:

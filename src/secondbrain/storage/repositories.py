@@ -1126,6 +1126,28 @@ class TaskRepository:
             task_list=row.task_list,
         )
 
+    def save_stale_prompt_message_id(
+        self,
+        *,
+        record_id: int,
+        message_id: int,
+        changed_at: str,
+    ) -> bool:
+        with transaction(self._engine) as connection:
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.id == record_id,
+                    records.c.record_type == "task",
+                    records.c.lifecycle_state == "task",
+                    records.c.stale_prompted_at.is_not(None),
+                    records.c.hidden_at.is_(None),
+                    records.c.trashed_at.is_(None),
+                )
+                .values(stale_prompt_message_id=message_id, updated_at=changed_at)
+            )
+        return result.rowcount == 1
+
     def list_stale_task_candidates(self) -> list[tuple[int, str]]:
         with self._engine.connect() as connection:
             rows = connection.execute(

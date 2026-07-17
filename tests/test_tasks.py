@@ -4,7 +4,13 @@ from pathlib import Path
 from sqlalchemy import select, update
 
 from secondbrain.services.capture import CaptureService
-from secondbrain.services.tasks import TaskService, build_task_page_keyboard
+from secondbrain.models.records import StaleTaskPrompt
+from secondbrain.services.tasks import (
+    TaskService,
+    build_stale_task_prompt_keyboard,
+    build_stale_task_prompt_text,
+    build_task_page_keyboard,
+)
 from secondbrain.storage.database import create_database_engine, initialize_database
 from secondbrain.storage.repositories import CaptureRepository, TaskRepository
 from secondbrain.storage.schema import records
@@ -559,3 +565,17 @@ def test_prepare_stale_task_prompt_selects_oldest_unprompted_active_task(tmp_pat
             select(records.c.stale_prompted_at).where(records.c.id == oldest.record_id)
         )
     assert prompted_at is not None
+
+
+def test_stale_task_prompt_keyboard_has_available_actions() -> None:
+    prompt = StaleTaskPrompt(record_id=42, display_text="Old task", task_list="week")
+
+    text = build_stale_task_prompt_text(prompt)
+    keyboard = build_stale_task_prompt_keyboard(prompt.record_id)
+
+    assert "Old task" in text
+    assert keyboard.inline_keyboard[0][0].callback_data == "stale:move:42:today"
+    assert keyboard.inline_keyboard[1][0].callback_data == "stale:move:42:tomorrow"
+    assert keyboard.inline_keyboard[2][0].callback_data == "stale:move:42:week"
+    assert keyboard.inline_keyboard[3][0].callback_data == "stale:done:42"
+    assert keyboard.inline_keyboard[4][0].callback_data == "stale:trash:42"

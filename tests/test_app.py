@@ -48,6 +48,9 @@ class FakeTaskService:
     def process_today_rollover(self) -> None:
         return None
 
+    def prepare_stale_task_prompt(self) -> None:
+        return None
+
 
 def test_register_link_metadata_job_schedules_periodic_processing() -> None:
     application = FakeApplication()
@@ -82,7 +85,7 @@ def test_register_evening_reminder_job_schedules_periodic_processing() -> None:
 def test_register_task_daily_rollover_job_schedules_periodic_processing() -> None:
     application = FakeApplication()
 
-    register_task_daily_rollover_job(application, FakeTaskService())  # type: ignore[arg-type]
+    register_task_daily_rollover_job(application, 10, FakeTaskService())  # type: ignore[arg-type]
 
     assert application.job_queue.jobs[0]["name"] == TASK_DAILY_ROLLOVER_JOB_NAME
     assert application.job_queue.jobs[0]["interval"] == TASK_DAILY_ROLLOVER_INTERVAL_SECONDS

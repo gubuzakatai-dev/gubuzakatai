@@ -16,7 +16,12 @@ from secondbrain.services.evening_reminder import (
 )
 from secondbrain.services.inbox import InboxService
 from secondbrain.services.link_metadata import LinkMetadataService
-from secondbrain.services.tasks import TASK_DAILY_ROLLOVER_JOB_NAME, TaskService
+from secondbrain.services.tasks import (
+    TASK_DAILY_ROLLOVER_JOB_NAME,
+    TaskService,
+    build_stale_task_prompt_keyboard,
+    build_stale_task_prompt_text,
+)
 from secondbrain.storage.database import create_database_engine, initialize_database
 from secondbrain.storage.repositories import (
     CaptureRepository,
@@ -70,7 +75,7 @@ def build_application(
             evening_reminder_service,
         )
     if task_service is not None:
-        register_task_daily_rollover_job(application, task_service)
+        register_task_daily_rollover_job(application, settings.telegram_allowed_user_id, task_service)
     return application
 
 
@@ -161,9 +166,26 @@ def register_evening_reminder_job(
     )
 
 
-def register_task_daily_rollover_job(application: Application, service: TaskService) -> None:
-    async def process_task_daily_rollover(_context: ContextTypes.DEFAULT_TYPE) -> None:
+def register_task_daily_rollover_job(
+    application: Application,
+    allowed_user_id: int,
+    service: TaskService,
+) -> None:
+    async def process_task_daily_rollover(context: ContextTypes.DEFAULT_TYPE) -> None:
         service.process_today_rollover()
+        prompt = service.prepare_stale_task_prompt()
+        if prompt is None:
+            return
+        message = await context.bot.send_message(
+            chat_id=allowed_user_id,
+            text=build_stale_task_prompt_text(prompt),
+            reply_markup=build_stale_task_prompt_keyboard(prompt.record_id),
+            disable_notification=True,
+        )
+        service.save_stale_prompt_message_id(
+            record_id=prompt.record_id,
+            message_id=message.message_id,
+        )
 
     if application.job_queue is None:
         logging.getLogger(__name__).warning("JobQueue недоступен, ежедневная обработка задач не выполняется")
