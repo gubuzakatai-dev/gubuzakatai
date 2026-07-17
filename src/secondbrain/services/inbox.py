@@ -342,6 +342,50 @@ def build_tag_search_keyboard(tags: list[TagOption]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def build_tag_management_keyboard(
+    *,
+    scope: str,
+    record_id: int,
+    page: int,
+    tags: list[TagOption],
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                f"Переименовать: {tag.name}",
+                callback_data=f"tags:rename:{scope}:{record_id}:{page}:{tag.tag_id}",
+            ),
+            InlineKeyboardButton(
+                "Удалить",
+                callback_data=f"tags:delete:{scope}:{record_id}:{page}:{tag.tag_id}",
+            ),
+        ]
+        for tag in tags
+    ]
+    rows.append([InlineKeyboardButton("Назад", callback_data=f"tags:back:{scope}:{record_id}:{page}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_tag_delete_confirmation_keyboard(
+    *,
+    scope: str,
+    record_id: int,
+    page: int,
+    tag_id: int,
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "Удалить",
+                    callback_data=f"tags:delete_confirm:{scope}:{record_id}:{page}:{tag_id}",
+                )
+            ],
+            [InlineKeyboardButton("Отмена", callback_data=f"tags:manage:{scope}:{record_id}:{page}")],
+        ]
+    )
+
+
 def build_trash_confirmation_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [

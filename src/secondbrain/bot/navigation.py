@@ -17,6 +17,8 @@ from secondbrain.services.inbox import (
     build_tag_selection_keyboard,
     build_tag_search_keyboard,
     build_task_list_keyboard,
+    build_tag_delete_confirmation_keyboard,
+    build_tag_management_keyboard,
     build_trash_confirmation_keyboard,
 )
 from secondbrain.services.tasks import TaskService, build_task_page_keyboard
@@ -24,6 +26,7 @@ from secondbrain.services.tasks import TaskService, build_task_page_keyboard
 NAVIGATION_TEXTS = frozenset({"Сегодня", "Завтра", "Неделя", "Папки"})
 PROCESSED_EDIT_TEXT_KEY = "processed_edit_text"
 TAG_CREATE_TEXT_KEY = "tag_create_text"
+TAG_RENAME_TEXT_KEY = "tag_rename_text"
 
 
 def register_navigation_handlers(
@@ -320,6 +323,84 @@ def register_navigation_handlers(
         await query.answer()
         await query.edit_message_text("Отправьте название нового тега")
 
+    async def back_to_tag_selection_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        scope, record_id, page = _tag_management_from_callback(query.data)
+        await query.answer()
+        await _edit_tag_selection(query, inbox_service, scope=scope, record_id=record_id, page=page)
+
+    async def open_tag_management_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        scope, record_id, page = _tag_management_from_callback(query.data)
+        await query.answer()
+        await query.edit_message_text(
+            "Управление тегами",
+            reply_markup=build_tag_management_keyboard(
+                scope=scope or "inbox",
+                record_id=record_id,
+                page=page,
+                tags=inbox_service.list_tags(),
+            ),
+        )
+
+    async def open_tag_rename_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        scope, record_id, page, tag_id = _tag_action_from_callback(query.data)
+        if scope not in {"inbox", "processed"}:
+            await query.answer()
+            return
+        context.user_data[TAG_RENAME_TEXT_KEY] = {
+            "scope": scope,
+            "record_id": record_id,
+            "page": page,
+            "tag_id": tag_id,
+        }
+        await query.answer()
+        await query.edit_message_text("Отправьте новое название тега")
+
+    async def open_tag_delete_confirmation_callback(
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        scope, record_id, page, tag_id = _tag_action_from_callback(query.data)
+        tag_name = _tag_name(inbox_service, tag_id)
+        await query.answer()
+        await query.edit_message_text(
+            f"Удалить тег «{tag_name}»?",
+            reply_markup=build_tag_delete_confirmation_keyboard(
+                scope=scope or "inbox",
+                record_id=record_id,
+                page=page,
+                tag_id=tag_id,
+            ),
+        )
+
+    async def confirm_tag_delete_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        scope, record_id, page, tag_id = _tag_action_from_callback(query.data)
+        deleted = inbox_service.delete_tag(tag_id=tag_id)
+        await query.answer("Удалено" if deleted else "Тег уже недоступен")
+        await query.edit_message_text(
+            "Управление тегами",
+            reply_markup=build_tag_management_keyboard(
+                scope=scope or "inbox",
+                record_id=record_id,
+                page=page,
+                tags=inbox_service.list_tags(),
+            ),
+        )
+
     async def open_processed_trash_confirmation_callback(
         update: Update,
         _context: ContextTypes.DEFAULT_TYPE,
@@ -556,6 +637,11 @@ def register_navigation_handlers(
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_tags_callback, pattern="^folders:tags$"), group=0)
     application.add_handler(CallbackQueryHandler(open_new_tag_callback, pattern="^tags:new:"), group=0)
+    application.add_handler(CallbackQueryHandler(back_to_tag_selection_callback, pattern="^tags:back:"), group=0)
+    application.add_handler(CallbackQueryHandler(confirm_tag_delete_callback, pattern="^tags:delete_confirm:"), group=0)
+    application.add_handler(CallbackQueryHandler(open_tag_delete_confirmation_callback, pattern="^tags:delete:"), group=0)
+    application.add_handler(CallbackQueryHandler(open_tag_rename_callback, pattern="^tags:rename:"), group=0)
+    application.add_handler(CallbackQueryHandler(open_tag_management_callback, pattern="^tags:manage:"), group=0)
     application.add_handler(
         CallbackQueryHandler(open_processed_callback, pattern="^(folders:processed|processed:page:)"),
         group=0,
@@ -761,6 +847,64 @@ def _tag_management_from_callback(data: str | None) -> tuple[str | None, int, in
         return parts[2], int(parts[3]), int(parts[4])
     except (IndexError, ValueError):
         return None, 0, 0
+
+
+def _tag_action_from_callback(data: str | None) -> tuple[str | None, int, int, int]:
+    if data is None:
+        return None, 0, 0, 0
+    parts = data.split(":")
+    try:
+        return parts[2], int(parts[3]), int(parts[4]), int(parts[5])
+    except (IndexError, ValueError):
+        return None, 0, 0, 0
+
+
+def _tag_name(inbox_service: InboxService, tag_id: int) -> str:
+    for tag in inbox_service.list_tags():
+        if tag.tag_id == tag_id:
+            return tag.name
+    return "тег"
+
+
+async def _edit_tag_selection(
+    query,
+    inbox_service: InboxService,
+    *,
+    scope: str | None,
+    record_id: int,
+    page: int,
+) -> None:
+    if scope == "processed":
+        text = inbox_service.build_processed_review(record_id)
+        current_tag_ids = inbox_service.processed_tag_ids(record_id)
+        if text is None or current_tag_ids is None:
+            page_data = inbox_service.build_processed_page(page)
+            await query.edit_message_text(page_data.text, reply_markup=build_processed_keyboard(page_data))
+            return
+        await query.edit_message_text(
+            text,
+            reply_markup=build_processed_tag_selection_keyboard(
+                record_id=record_id,
+                page=page,
+                tags=inbox_service.list_tags(),
+                selected_tag_ids=set(current_tag_ids),
+            ),
+        )
+        return
+    text = inbox_service.build_review(record_id)
+    if text is None:
+        page_data = inbox_service.build_page(page)
+        await query.edit_message_text(page_data.text, reply_markup=build_inbox_keyboard(page_data))
+        return
+    await query.edit_message_text(
+        text,
+        reply_markup=build_tag_selection_keyboard(
+            record_id=record_id,
+            page=page,
+            tags=inbox_service.list_tags(),
+            selected_tag_ids=set(),
+        ),
+    )
 
 
 def _selected_tags(

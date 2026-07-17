@@ -17,6 +17,8 @@ from secondbrain.services.inbox import (
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
     build_tag_search_keyboard,
+    build_tag_delete_confirmation_keyboard,
+    build_tag_management_keyboard,
     build_task_list_keyboard,
     build_trash_confirmation_keyboard,
 )
@@ -458,6 +460,24 @@ def test_tag_search_keyboard_lists_available_tags(tmp_path: Path) -> None:
     assert keyboard.inline_keyboard[1][0].text == tags[1].name
     assert keyboard.inline_keyboard[-1][0].text == "Назад"
     assert keyboard.inline_keyboard[-1][0].callback_data == "folders:open"
+
+
+def test_tag_management_keyboard_keeps_record_context(tmp_path: Path) -> None:
+    _capture, inbox, _engine = _services(tmp_path)
+    tags = inbox.list_tags()
+
+    keyboard = build_tag_management_keyboard(scope="processed", record_id=42, page=3, tags=tags[:1])
+
+    assert keyboard.inline_keyboard[0][0].callback_data == f"tags:rename:processed:42:3:{tags[0].tag_id}"
+    assert keyboard.inline_keyboard[0][1].callback_data == f"tags:delete:processed:42:3:{tags[0].tag_id}"
+    assert keyboard.inline_keyboard[-1][0].callback_data == "tags:back:processed:42:3"
+
+
+def test_tag_delete_confirmation_keyboard_keeps_record_context() -> None:
+    keyboard = build_tag_delete_confirmation_keyboard(scope="inbox", record_id=42, page=3, tag_id=9)
+
+    assert keyboard.inline_keyboard[0][0].callback_data == "tags:delete_confirm:inbox:42:3:9"
+    assert keyboard.inline_keyboard[1][0].callback_data == "tags:manage:inbox:42:3"
 
 
 def test_create_tag_normalizes_name_and_rejects_duplicate(tmp_path: Path) -> None:

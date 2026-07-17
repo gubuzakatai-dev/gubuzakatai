@@ -1,7 +1,12 @@
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
-from secondbrain.bot.navigation import NAVIGATION_TEXTS, PROCESSED_EDIT_TEXT_KEY, TAG_CREATE_TEXT_KEY
+from secondbrain.bot.navigation import (
+    NAVIGATION_TEXTS,
+    PROCESSED_EDIT_TEXT_KEY,
+    TAG_CREATE_TEXT_KEY,
+    TAG_RENAME_TEXT_KEY,
+)
 from secondbrain.services.capture import CaptureService
 from secondbrain.services.inbox import (
     InboxService,
@@ -9,6 +14,7 @@ from secondbrain.services.inbox import (
     build_processed_keyboard,
     build_processed_review_keyboard,
     build_processed_tag_selection_keyboard,
+    build_tag_management_keyboard,
     build_tag_selection_keyboard,
 )
 
@@ -31,6 +37,37 @@ def register_capture_handlers(
         message = update.effective_message
         if message is None or message.text is None:
             return
+        tag_rename_state = context.user_data.get(TAG_RENAME_TEXT_KEY)
+        if inbox_service is not None and isinstance(tag_rename_state, dict):
+            scope = tag_rename_state.get("scope")
+            record_id = tag_rename_state.get("record_id")
+            page = tag_rename_state.get("page", 0)
+            tag_id = tag_rename_state.get("tag_id")
+            if (
+                scope in {"inbox", "processed"}
+                and isinstance(record_id, int)
+                and isinstance(page, int)
+                and isinstance(tag_id, int)
+            ):
+                renamed = inbox_service.rename_tag(tag_id=tag_id, name=message.text)
+                if not renamed:
+                    await message.reply_text(
+                        "Не удалось переименовать тег. Проверьте длину и уникальность названия.",
+                        disable_notification=True,
+                    )
+                    return
+                context.user_data.pop(TAG_RENAME_TEXT_KEY, None)
+                await message.reply_text(
+                    "Управление тегами",
+                    reply_markup=build_tag_management_keyboard(
+                        scope=scope,
+                        record_id=record_id,
+                        page=page,
+                        tags=inbox_service.list_tags(),
+                    ),
+                    disable_notification=True,
+                )
+                return
         tag_create_state = context.user_data.get(TAG_CREATE_TEXT_KEY)
         if inbox_service is not None and isinstance(tag_create_state, dict):
             scope = tag_create_state.get("scope")
