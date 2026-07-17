@@ -138,6 +138,19 @@ class InboxService:
     def list_tags(self) -> list[TagOption]:
         return self._repository.list_tags()
 
+    def create_tag(self, *, name: str) -> TagOption | None:
+        return self._repository.create_tag(name=name, changed_at=utc_now_text())
+
+    def rename_tag(self, *, tag_id: int, name: str) -> bool:
+        return self._repository.rename_tag(
+            tag_id=tag_id,
+            name=name,
+            changed_at=utc_now_text(),
+        )
+
+    def delete_tag(self, *, tag_id: int) -> bool:
+        return self._repository.delete_tag(tag_id=tag_id)
+
     def save_tags(self, *, record_id: int, tag_ids: tuple[int, ...]) -> bool:
         return self._repository.mark_inbox_processed_with_tags(
             record_id=record_id,
@@ -290,6 +303,8 @@ def build_tag_selection_keyboard(
         ]
         for tag in tags
     ]
+    rows.append([InlineKeyboardButton("Новый тег", callback_data=f"tags:new:inbox:{record_id}:{page}")])
+    rows.append([InlineKeyboardButton("Управление тегами", callback_data=f"tags:manage:inbox:{record_id}:{page}")])
     rows.append([InlineKeyboardButton("Сохранить", callback_data=f"inbox:tag_save:{record_id}:{page}")])
     rows.append([InlineKeyboardButton("Назад", callback_data=f"inbox:review:{record_id}:page:{page}")])
     return InlineKeyboardMarkup(rows)
@@ -311,6 +326,8 @@ def build_processed_tag_selection_keyboard(
         ]
         for tag in tags
     ]
+    rows.append([InlineKeyboardButton("Новый тег", callback_data=f"tags:new:processed:{record_id}:{page}")])
+    rows.append([InlineKeyboardButton("Управление тегами", callback_data=f"tags:manage:processed:{record_id}:{page}")])
     rows.append([InlineKeyboardButton("Сохранить", callback_data=f"processed:tag_save:{record_id}:{page}")])
     rows.append([InlineKeyboardButton("Назад", callback_data=f"processed:record:{record_id}:page:{page}")])
     return InlineKeyboardMarkup(rows)

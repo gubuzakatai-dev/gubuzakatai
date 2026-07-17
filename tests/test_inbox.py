@@ -199,6 +199,8 @@ def test_processed_tag_selection_keyboard_keeps_record_and_page_context(tmp_path
     assert keyboard.inline_keyboard[0][0].text == f"✓ {tags[0].name}"
     assert keyboard.inline_keyboard[0][0].callback_data == f"processed:tag_toggle:42:{tags[0].tag_id}:3"
     assert keyboard.inline_keyboard[1][0].text == tags[1].name
+    assert keyboard.inline_keyboard[-4][0].callback_data == "tags:new:processed:42:3"
+    assert keyboard.inline_keyboard[-3][0].callback_data == "tags:manage:processed:42:3"
     assert keyboard.inline_keyboard[-2][0].callback_data == "processed:tag_save:42:3"
     assert keyboard.inline_keyboard[-1][0].callback_data == "processed:record:42:page:3"
 
@@ -440,6 +442,8 @@ def test_tag_selection_keyboard_marks_selected_tags(tmp_path: Path) -> None:
     assert keyboard.inline_keyboard[0][0].text == f"✓ {tags[0].name}"
     assert keyboard.inline_keyboard[0][0].callback_data == f"inbox:tag_toggle:42:{tags[0].tag_id}:3"
     assert keyboard.inline_keyboard[1][0].text == tags[1].name
+    assert keyboard.inline_keyboard[-4][0].callback_data == "tags:new:inbox:42:3"
+    assert keyboard.inline_keyboard[-3][0].callback_data == "tags:manage:inbox:42:3"
     assert keyboard.inline_keyboard[-2][0].callback_data == "inbox:tag_save:42:3"
 
 
@@ -454,6 +458,60 @@ def test_tag_search_keyboard_lists_available_tags(tmp_path: Path) -> None:
     assert keyboard.inline_keyboard[1][0].text == tags[1].name
     assert keyboard.inline_keyboard[-1][0].text == "Назад"
     assert keyboard.inline_keyboard[-1][0].callback_data == "folders:open"
+
+
+def test_create_tag_normalizes_name_and_rejects_duplicate(tmp_path: Path) -> None:
+    _capture, inbox, _engine = _services(tmp_path)
+
+    created = inbox.create_tag(name="  Новый   тег  ")
+
+    assert created is not None
+    assert created.name == "Новый тег"
+    assert inbox.create_tag(name="новый тег") is None
+    assert inbox.create_tag(name="") is None
+    assert inbox.create_tag(name="Слишком длинный тег") is None
+
+
+def test_rename_tag_keeps_record_assignments(tmp_path: Path) -> None:
+    capture, inbox, _engine = _services(tmp_path)
+    created = inbox.create_tag(name="Старый")
+    assert created is not None
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Переименовать тег",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    assert inbox.save_tags(record_id=captured.record_id, tag_ids=(created.tag_id,)) is True
+
+    assert inbox.rename_tag(tag_id=created.tag_id, name="Новый") is True
+
+    assert inbox.build_processed_review(captured.record_id) == "Переименовать тег\n\nТеги: Новый"
+    assert inbox.rename_tag(tag_id=created.tag_id, name="Прочее") is False
+
+
+def test_delete_tag_removes_assignments_but_keeps_records(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    created = inbox.create_tag(name="Удалить")
+    assert created is not None
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Удаляемый тег",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    assert inbox.save_tags(record_id=captured.record_id, tag_ids=(created.tag_id,)) is True
+
+    assert inbox.delete_tag(tag_id=created.tag_id) is True
+
+    assert inbox.build_processed_review(captured.record_id) == "Удаляемый тег\n\nТеги: нет"
+    with engine.connect() as connection:
+        record_exists = connection.scalar(
+            select(func.count()).select_from(records).where(records.c.id == captured.record_id)
+        )
+        assigned_count = connection.scalar(select(func.count()).select_from(record_tags))
+    assert record_exists == 1
+    assert assigned_count == 0
 
 
 def test_save_tags_marks_record_processed_and_assigns_tags(tmp_path: Path) -> None:

@@ -1,7 +1,8 @@
 import json
+import unicodedata
 from dataclasses import dataclass
 
-from sqlalchemy import Engine, func, insert, select, update
+from sqlalchemy import Engine, delete, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
 from secondbrain.models.records import (
@@ -14,7 +15,7 @@ from secondbrain.models.records import (
     TagOption,
     TaskRecord,
 )
-from secondbrain.storage.database import transaction
+from secondbrain.storage.database import normalize_tag_name, transaction
 from secondbrain.storage.schema import (
     processing_results,
     record_tags,
@@ -399,6 +400,59 @@ class InboxRepository:
                 select(tags.c.id, tags.c.name).order_by(tags.c.sort_order, tags.c.id)
             ).all()
         return [TagOption(tag_id=row.id, name=row.name) for row in rows]
+
+    def create_tag(self, *, name: str, changed_at: str) -> TagOption | None:
+        display_name = _tag_display_name(name)
+        if display_name is None:
+            return None
+        normalized_name = normalize_tag_name(display_name)
+        with transaction(self._engine) as connection:
+            existing = connection.execute(
+                select(tags.c.id).where(tags.c.normalized_name == normalized_name)
+            ).one_or_none()
+            if existing is not None:
+                return None
+            result = connection.execute(
+                insert(tags).values(
+                    name=display_name,
+                    normalized_name=normalized_name,
+                    is_system=False,
+                    sort_order=9,
+                    created_at=changed_at,
+                    updated_at=changed_at,
+                )
+            )
+        return TagOption(tag_id=int(result.inserted_primary_key[0]), name=display_name)
+
+    def rename_tag(self, *, tag_id: int, name: str, changed_at: str) -> bool:
+        display_name = _tag_display_name(name)
+        if display_name is None:
+            return False
+        normalized_name = normalize_tag_name(display_name)
+        with transaction(self._engine) as connection:
+            existing = connection.execute(
+                select(tags.c.id).where(
+                    tags.c.normalized_name == normalized_name,
+                    tags.c.id != tag_id,
+                )
+            ).one_or_none()
+            if existing is not None:
+                return False
+            result = connection.execute(
+                update(tags)
+                .where(tags.c.id == tag_id)
+                .values(
+                    name=display_name,
+                    normalized_name=normalized_name,
+                    updated_at=changed_at,
+                )
+            )
+        return result.rowcount == 1
+
+    def delete_tag(self, *, tag_id: int) -> bool:
+        with transaction(self._engine) as connection:
+            result = connection.execute(delete(tags).where(tags.c.id == tag_id))
+        return result.rowcount == 1
 
     def mark_inbox_processed_with_tags(
         self,
@@ -957,3 +1011,13 @@ class TaskRepository:
                 )
             )
         return hidden_today_count + hidden_tomorrow_count + moved_tomorrow_count
+
+
+def _tag_display_name(name: str) -> str | None:
+    display_name = unicodedata.normalize("NFC", name.strip())
+    display_name = " ".join(display_name.split())
+    if not 1 <= len(display_name) <= 15:
+        return None
+    if any(character in display_name for character in "\r\n\t"):
+        return None
+    return display_name
