@@ -797,3 +797,33 @@ def test_restore_inbox_record_from_trash_returns_existing_record(tmp_path: Path)
     assert record.trashed_at is None
     assert record.pre_trash_lifecycle_state is None
     assert source_count == 1
+
+
+def test_trash_keeps_only_latest_thirty_records(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    captured_ids = []
+    for index in range(31):
+        captured = capture.capture_text(
+            chat_id=10,
+            message_id=index + 1,
+            raw_text=f"Trash item {index}",
+            telegram_sent_at=datetime(2026, 7, 16, 10, index, tzinfo=UTC),
+        )
+        captured_ids.append(captured.record_id)
+
+    for record_id in captured_ids:
+        assert inbox.move_to_trash(record_id=record_id) is True
+
+    with engine.connect() as connection:
+        remaining_ids = tuple(
+            row.id
+            for row in connection.execute(
+                select(records.c.id)
+                .where(records.c.trashed_at.is_not(None))
+                .order_by(records.c.trashed_at.desc(), records.c.id.desc())
+            )
+        )
+        source_count = connection.scalar(select(func.count()).select_from(source_messages))
+    assert len(remaining_ids) == 30
+    assert captured_ids[0] not in remaining_ids
+    assert source_count == 30
