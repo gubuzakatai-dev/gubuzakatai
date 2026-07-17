@@ -124,6 +124,25 @@ class TaskService:
             changed_at=utc_now_text(),
         )
 
+    def move_stale_task(self, *, record_id: int, target_task_list: str) -> bool:
+        return self._repository.move_stale_task(
+            record_id=record_id,
+            target_task_list=target_task_list,
+            changed_at=utc_now_text(),
+        )
+
+    def complete_stale_task(self, *, record_id: int) -> bool:
+        return self._repository.complete_stale_task(
+            record_id=record_id,
+            changed_at=utc_now_text(),
+        )
+
+    def move_stale_task_to_trash(self, *, record_id: int) -> bool:
+        return self._repository.move_stale_task_to_trash(
+            record_id=record_id,
+            trashed_at=utc_now_text(),
+        )
+
 
 def build_task_page_keyboard(task_list: str, page: TaskPage) -> InlineKeyboardMarkup:
     if not page.record_ids:

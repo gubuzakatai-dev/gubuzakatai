@@ -254,6 +254,39 @@ def register_navigation_handlers(
         page = task_service.build_page(task_list, page_number)
         await query.edit_message_text(page.text, reply_markup=build_task_page_keyboard(task_list, page))
 
+    async def move_stale_task_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        if task_service is None:
+            return
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, task_list = _stale_move_from_callback(query.data)
+        moved = task_service.move_stale_task(record_id=record_id, target_task_list=task_list)
+        await query.answer("Сохранено" if moved else "Не удалось сохранить")
+        await query.edit_message_text("Сохранено" if moved else "Не удалось сохранить")
+
+    async def complete_stale_task_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        if task_service is None:
+            return
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id = _stale_record_from_callback(query.data)
+        completed = task_service.complete_stale_task(record_id=record_id)
+        await query.answer("Сохранено" if completed else "Не удалось сохранить")
+        await query.edit_message_text("Сохранено" if completed else "Не удалось сохранить")
+
+    async def trash_stale_task_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        if task_service is None:
+            return
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id = _stale_record_from_callback(query.data)
+        moved = task_service.move_stale_task_to_trash(record_id=record_id)
+        await query.answer("Сохранено" if moved else "Не удалось сохранить")
+        await query.edit_message_text("Сохранено" if moved else "Не удалось сохранить")
+
     async def open_inbox_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         if query is None or query.message is None:
@@ -739,6 +772,9 @@ def register_navigation_handlers(
             CallbackQueryHandler(toggle_today_task_callback, pattern="^tasks:(today|tomorrow|week):record:"),
             group=0,
         )
+        application.add_handler(CallbackQueryHandler(move_stale_task_callback, pattern="^stale:move:"), group=0)
+        application.add_handler(CallbackQueryHandler(complete_stale_task_callback, pattern="^stale:done:"), group=0)
+        application.add_handler(CallbackQueryHandler(trash_stale_task_callback, pattern="^stale:trash:"), group=0)
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_search_callback, pattern="^search:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_search_page_callback, pattern="^search:page:"), group=0)
@@ -1009,6 +1045,26 @@ def _search_resume_list_from_callback(data: str | None) -> tuple[int, str, int]:
         return int(parts[2]), parts[3], int(parts[4])
     except (IndexError, ValueError):
         return 0, "", 0
+
+
+def _stale_move_from_callback(data: str | None) -> tuple[int, str]:
+    if data is None:
+        return 0, ""
+    parts = data.split(":")
+    try:
+        return int(parts[2]), parts[3]
+    except (IndexError, ValueError):
+        return 0, ""
+
+
+def _stale_record_from_callback(data: str | None) -> int:
+    if data is None:
+        return 0
+    parts = data.split(":")
+    try:
+        return int(parts[2])
+    except (IndexError, ValueError):
+        return 0
 
 
 def _tag_name(inbox_service: InboxService, tag_id: int) -> str:
