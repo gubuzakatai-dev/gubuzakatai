@@ -1,11 +1,15 @@
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
-from secondbrain.bot.navigation import NAVIGATION_TEXTS, PROCESSED_EDIT_TEXT_KEY
+from secondbrain.bot.navigation import NAVIGATION_TEXTS, PROCESSED_EDIT_TEXT_KEY, TAG_CREATE_TEXT_KEY
 from secondbrain.services.capture import CaptureService
 from secondbrain.services.inbox import (
     InboxService,
+    build_inbox_keyboard,
+    build_processed_keyboard,
     build_processed_review_keyboard,
+    build_processed_tag_selection_keyboard,
+    build_tag_selection_keyboard,
 )
 
 VOICE_REPLY = (
@@ -27,6 +31,74 @@ def register_capture_handlers(
         message = update.effective_message
         if message is None or message.text is None:
             return
+        tag_create_state = context.user_data.get(TAG_CREATE_TEXT_KEY)
+        if inbox_service is not None and isinstance(tag_create_state, dict):
+            scope = tag_create_state.get("scope")
+            record_id = tag_create_state.get("record_id")
+            page = tag_create_state.get("page", 0)
+            if scope in {"inbox", "processed"} and isinstance(record_id, int) and isinstance(page, int):
+                created = inbox_service.create_tag(name=message.text)
+                if created is None:
+                    await message.reply_text(
+                        "Не удалось создать тег. Проверьте длину и уникальность названия.",
+                        disable_notification=True,
+                    )
+                    return
+                context.user_data.pop(TAG_CREATE_TEXT_KEY, None)
+                if scope == "processed":
+                    key = f"processed_tags:{record_id}"
+                    selected = context.user_data.setdefault(key, set())
+                    if not isinstance(selected, set):
+                        selected = set()
+                        context.user_data[key] = selected
+                    selected.add(created.tag_id)
+                    text = inbox_service.build_processed_review(record_id)
+                    current_tag_ids = inbox_service.processed_tag_ids(record_id)
+                    if text is None or current_tag_ids is None:
+                        page_data = inbox_service.build_processed_page(page)
+                        await message.reply_text(
+                            page_data.text,
+                            reply_markup=build_processed_keyboard(page_data),
+                            disable_notification=True,
+                        )
+                        return
+                    await message.reply_text(
+                        text,
+                        reply_markup=build_processed_tag_selection_keyboard(
+                            record_id=record_id,
+                            page=page,
+                            tags=inbox_service.list_tags(),
+                            selected_tag_ids=selected,
+                        ),
+                        disable_notification=True,
+                    )
+                    return
+                key = f"inbox_tags:{record_id}"
+                selected = context.user_data.setdefault(key, set())
+                if not isinstance(selected, set):
+                    selected = set()
+                    context.user_data[key] = selected
+                selected.add(created.tag_id)
+                text = inbox_service.build_review(record_id)
+                if text is None:
+                    page_data = inbox_service.build_page(page)
+                    await message.reply_text(
+                        page_data.text,
+                        reply_markup=build_inbox_keyboard(page_data),
+                        disable_notification=True,
+                    )
+                    return
+                await message.reply_text(
+                    text,
+                    reply_markup=build_tag_selection_keyboard(
+                        record_id=record_id,
+                        page=page,
+                        tags=inbox_service.list_tags(),
+                        selected_tag_ids=selected,
+                    ),
+                    disable_notification=True,
+                )
+                return
         edit_state = context.user_data.get(PROCESSED_EDIT_TEXT_KEY)
         if inbox_service is not None and isinstance(edit_state, dict):
             record_id = edit_state.get("record_id")

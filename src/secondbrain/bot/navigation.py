@@ -23,6 +23,7 @@ from secondbrain.services.tasks import TaskService, build_task_page_keyboard
 
 NAVIGATION_TEXTS = frozenset({"Сегодня", "Завтра", "Неделя", "Папки"})
 PROCESSED_EDIT_TEXT_KEY = "processed_edit_text"
+TAG_CREATE_TEXT_KEY = "tag_create_text"
 
 
 def register_navigation_handlers(
@@ -307,6 +308,18 @@ def register_navigation_handlers(
             reply_markup=build_processed_review_keyboard(record_id, page),
         )
 
+    async def open_new_tag_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        scope, record_id, page = _tag_management_from_callback(query.data)
+        if scope not in {"inbox", "processed"}:
+            await query.answer()
+            return
+        context.user_data[TAG_CREATE_TEXT_KEY] = {"scope": scope, "record_id": record_id, "page": page}
+        await query.answer()
+        await query.edit_message_text("Отправьте название нового тега")
+
     async def open_processed_trash_confirmation_callback(
         update: Update,
         _context: ContextTypes.DEFAULT_TYPE,
@@ -542,6 +555,7 @@ def register_navigation_handlers(
         )
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_tags_callback, pattern="^folders:tags$"), group=0)
+    application.add_handler(CallbackQueryHandler(open_new_tag_callback, pattern="^tags:new:"), group=0)
     application.add_handler(
         CallbackQueryHandler(open_processed_callback, pattern="^(folders:processed|processed:page:)"),
         group=0,
@@ -737,6 +751,16 @@ def _tag_toggle_from_callback(data: str | None) -> tuple[int, int, int]:
         return int(parts[2]), int(parts[3]), int(parts[4])
     except (IndexError, ValueError):
         return 0, 0, 0
+
+
+def _tag_management_from_callback(data: str | None) -> tuple[str | None, int, int]:
+    if data is None:
+        return None, 0, 0
+    parts = data.split(":")
+    try:
+        return parts[2], int(parts[3]), int(parts[4])
+    except (IndexError, ValueError):
+        return None, 0, 0
 
 
 def _selected_tags(
