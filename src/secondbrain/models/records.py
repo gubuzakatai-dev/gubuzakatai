@@ -65,6 +65,12 @@ class SearchRecord:
     display_text: str
     location: str
     tags: tuple[str, ...]
+    record_type: str
+    lifecycle_state: str
+    task_list: str | None
+    trashed: bool
+    hidden: bool
+    completed: bool
 
 
 @dataclass(frozen=True, slots=True)

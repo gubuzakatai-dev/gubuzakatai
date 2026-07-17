@@ -423,3 +423,53 @@ def test_daily_rollover_moves_active_tomorrow_tasks_to_today(tmp_path: Path) -> 
     assert active_row.task_active_since == before
     assert done_row.task_list == "tomorrow"
     assert done_row.hidden_at is not None
+
+
+def test_resume_hidden_task_returns_it_to_selected_list(tmp_path: Path) -> None:
+    engine = create_database_engine(tmp_path / "test.sqlite3")
+    initialize_database(engine)
+    capture = CaptureService(CaptureRepository(engine))
+    tasks = TaskService(TaskRepository(engine))
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Hidden task",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            update(records)
+            .where(records.c.id == captured.record_id)
+            .values(
+                record_type="task",
+                lifecycle_state="task",
+                task_list="today",
+                task_active_since="2026-07-16T10:00:00+00:00",
+                completed_at="2026-07-16T20:59:00+00:00",
+                hidden_at="2026-07-16T21:05:00+00:00",
+                stale_prompted_at="2026-07-16T20:00:00+00:00",
+                stale_prompt_message_id=123,
+            )
+        )
+
+    assert tasks.resume_task(record_id=captured.record_id, target_task_list="week") is True
+
+    page = tasks.build_page("week")
+    assert page.record_ids == (captured.record_id,)
+    with engine.connect() as connection:
+        row = connection.execute(
+            select(
+                records.c.task_list,
+                records.c.completed_at,
+                records.c.hidden_at,
+                records.c.stale_prompted_at,
+                records.c.stale_prompt_message_id,
+                records.c.task_active_since,
+            ).where(records.c.id == captured.record_id)
+        ).one()
+    assert row.task_list == "week"
+    assert row.completed_at is None
+    assert row.hidden_at is None
+    assert row.stale_prompted_at is None
+    assert row.stale_prompt_message_id is None
+    assert row.task_active_since is not None

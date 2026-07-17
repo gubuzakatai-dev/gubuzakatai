@@ -15,7 +15,9 @@ from secondbrain.services.inbox import (
     build_processed_trash_confirmation_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
+    build_search_record_keyboard,
     build_search_results_keyboard,
+    build_search_resume_keyboard,
     build_tag_selection_keyboard,
     build_tag_search_keyboard,
     build_tag_search_results_keyboard,
@@ -586,6 +588,47 @@ def test_search_results_keyboard_has_new_search_and_back(tmp_path: Path) -> None
 
     assert keyboard.inline_keyboard[-2][0].callback_data == "search:open"
     assert keyboard.inline_keyboard[-1][0].callback_data == "main:open"
+
+
+def test_search_record_keyboard_can_resume_hidden_task(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Hidden task",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            update(records)
+            .where(records.c.id == captured.record_id)
+            .values(
+                record_type="task",
+                lifecycle_state="task",
+                task_list="today",
+                task_active_since="2026-07-16T10:00:00+00:00",
+                completed_at="2026-07-16T20:59:00+00:00",
+                hidden_at="2026-07-16T21:05:00+00:00",
+            )
+        )
+
+    record = inbox.get_search_record(captured.record_id)
+    assert record is not None
+    assert inbox.build_search_review(captured.record_id) is not None
+
+    keyboard = build_search_record_keyboard(record, page=2)
+
+    assert keyboard.inline_keyboard[0][0].callback_data == f"search:resume:{captured.record_id}:page:2"
+    assert keyboard.inline_keyboard[-1][0].callback_data == "search:page:2"
+
+
+def test_search_resume_keyboard_keeps_record_context() -> None:
+    keyboard = build_search_resume_keyboard(record_id=42, page=3)
+
+    assert keyboard.inline_keyboard[0][0].callback_data == "search:resume_list:42:today:3"
+    assert keyboard.inline_keyboard[1][0].callback_data == "search:resume_list:42:tomorrow:3"
+    assert keyboard.inline_keyboard[2][0].callback_data == "search:resume_list:42:week:3"
+    assert keyboard.inline_keyboard[3][0].callback_data == "search:record:42:page:3"
 
 
 def test_tag_management_keyboard_keeps_record_context(tmp_path: Path) -> None:

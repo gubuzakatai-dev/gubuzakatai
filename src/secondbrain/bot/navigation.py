@@ -14,7 +14,9 @@ from secondbrain.services.inbox import (
     build_processed_trash_confirmation_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
+    build_search_record_keyboard,
     build_search_results_keyboard,
+    build_search_resume_keyboard,
     build_tag_selection_keyboard,
     build_tag_search_keyboard,
     build_tag_search_results_keyboard,
@@ -104,6 +106,49 @@ def register_navigation_handlers(
             page=_page_from_callback(query.data),
         )
         await query.edit_message_text(page.text, reply_markup=build_search_results_keyboard(page))
+
+    async def open_search_record_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, page_number = _search_record_from_callback(query.data)
+        record = inbox_service.get_search_record(record_id)
+        text = inbox_service.build_search_review(record_id)
+        await query.answer()
+        if record is None or text is None:
+            await query.edit_message_text("Запись не найдена", reply_markup=build_search_results_keyboard(inbox_service.build_search_page(query="", page=0)))
+            return
+        await query.edit_message_text(
+            text,
+            reply_markup=build_search_record_keyboard(record, page_number),
+        )
+
+    async def open_search_resume_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, page_number = _search_resume_from_callback(query.data)
+        await query.answer()
+        await query.edit_message_text(
+            "Куда возобновить задачу?",
+            reply_markup=build_search_resume_keyboard(record_id, page_number),
+        )
+
+    async def resume_search_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if task_service is None:
+            return
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, task_list, page_number = _search_resume_list_from_callback(query.data)
+        resumed = task_service.resume_task(record_id=record_id, target_task_list=task_list)
+        await query.answer("Сохранено" if resumed else "Не удалось сохранить")
+        search_query = context.user_data.get(SEARCH_QUERY_KEY)
+        if isinstance(search_query, str):
+            page = inbox_service.build_search_page(query=search_query, page=page_number)
+            await query.edit_message_text(page.text, reply_markup=build_search_results_keyboard(page))
+            return
+        await query.edit_message_text("Готово" if resumed else "Не удалось сохранить")
 
     async def open_tag_search_results_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -683,6 +728,9 @@ def register_navigation_handlers(
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_search_callback, pattern="^search:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_search_page_callback, pattern="^search:page:"), group=0)
+    application.add_handler(CallbackQueryHandler(resume_search_task_callback, pattern="^search:resume_list:"), group=0)
+    application.add_handler(CallbackQueryHandler(open_search_resume_callback, pattern="^search:resume:"), group=0)
+    application.add_handler(CallbackQueryHandler(open_search_record_callback, pattern="^search:record:"), group=0)
     application.add_handler(CallbackQueryHandler(open_tags_callback, pattern="^folders:tags$"), group=0)
     application.add_handler(CallbackQueryHandler(open_tag_search_results_callback, pattern="^tags:select:"), group=0)
     application.add_handler(CallbackQueryHandler(open_new_tag_callback, pattern="^tags:new:"), group=0)
@@ -916,6 +964,36 @@ def _tag_search_from_callback(data: str | None) -> tuple[int, int]:
         return int(parts[2]), int(parts[4])
     except (IndexError, ValueError):
         return 0, 0
+
+
+def _search_record_from_callback(data: str | None) -> tuple[int, int]:
+    if data is None:
+        return 0, 0
+    parts = data.split(":")
+    try:
+        return int(parts[2]), int(parts[4])
+    except (IndexError, ValueError):
+        return 0, 0
+
+
+def _search_resume_from_callback(data: str | None) -> tuple[int, int]:
+    if data is None:
+        return 0, 0
+    parts = data.split(":")
+    try:
+        return int(parts[2]), int(parts[4])
+    except (IndexError, ValueError):
+        return 0, 0
+
+
+def _search_resume_list_from_callback(data: str | None) -> tuple[int, str, int]:
+    if data is None:
+        return 0, "", 0
+    parts = data.split(":")
+    try:
+        return int(parts[2]), parts[3], int(parts[4])
+    except (IndexError, ValueError):
+        return 0, "", 0
 
 
 def _tag_name(inbox_service: InboxService, tag_id: int) -> str:

@@ -6,6 +6,7 @@ from secondbrain.models.records import (
     InboxNextReview,
     InboxPage,
     ProcessedPage,
+    SearchRecord,
     SearchPage,
     TagOption,
     TagSearchPage,
@@ -196,6 +197,16 @@ class InboxService:
             has_previous=page > 0,
             has_next=end < len(records),
         )
+
+    def get_search_record(self, record_id: int) -> SearchRecord | None:
+        return self._repository.get_search_record(record_id)
+
+    def build_search_review(self, record_id: int) -> str | None:
+        record = self.get_search_record(record_id)
+        if record is None:
+            return None
+        tag_line = f"Теги: {', '.join(record.tags)}" if record.tags else "Теги: нет"
+        return f"{record.display_text}\n\nМесто: {record.location}\n{tag_line}"
 
     def build_processed_review(self, record_id: int) -> str | None:
         record = self._repository.get_processed_record(record_id)
@@ -469,7 +480,15 @@ def build_tag_search_results_keyboard(page: TagSearchPage) -> InlineKeyboardMark
 
 
 def build_search_results_keyboard(page: SearchPage) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
+    rows = [
+        [
+            InlineKeyboardButton(
+                str(number),
+                callback_data=f"search:record:{record_id}:page:{page.page}",
+            )
+        ]
+        for number, record_id in enumerate(page.record_ids, start=1)
+    ]
     navigation: list[InlineKeyboardButton] = []
     if page.has_previous:
         navigation.append(InlineKeyboardButton("←", callback_data=f"search:page:{page.page - 1}"))
@@ -480,6 +499,25 @@ def build_search_results_keyboard(page: SearchPage) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton("Новый поиск", callback_data="search:open")])
     rows.append([InlineKeyboardButton("Назад", callback_data="main:open")])
     return InlineKeyboardMarkup(rows)
+
+
+def build_search_record_keyboard(record: SearchRecord, page: int) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if record.record_type == "task" and record.hidden and not record.trashed:
+        rows.append([InlineKeyboardButton("Возобновить", callback_data=f"search:resume:{record.record_id}:page:{page}")])
+    rows.append([InlineKeyboardButton("Назад", callback_data=f"search:page:{page}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_search_resume_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Сегодня", callback_data=f"search:resume_list:{record_id}:today:{page}")],
+            [InlineKeyboardButton("Завтра", callback_data=f"search:resume_list:{record_id}:tomorrow:{page}")],
+            [InlineKeyboardButton("Неделя", callback_data=f"search:resume_list:{record_id}:week:{page}")],
+            [InlineKeyboardButton("Назад", callback_data=f"search:record:{record_id}:page:{page}")],
+        ]
+    )
 
 
 def build_tag_management_keyboard(

@@ -641,8 +641,10 @@ class InboxRepository:
                 select(
                     records.c.id,
                     records.c.display_text,
+                    records.c.record_type,
                     records.c.lifecycle_state,
                     records.c.task_list,
+                    records.c.completed_at,
                     records.c.trashed_at,
                     records.c.hidden_at,
                     func.group_concat(tags.c.name, ", ").label("tag_names"),
@@ -665,9 +667,55 @@ class InboxRepository:
                     hidden=row.hidden_at is not None,
                 ),
                 tags=tuple(tag for tag in (row.tag_names or "").split(", ") if tag),
+                record_type=row.record_type,
+                lifecycle_state=row.lifecycle_state,
+                task_list=row.task_list,
+                trashed=row.trashed_at is not None,
+                hidden=row.hidden_at is not None,
+                completed=row.completed_at is not None,
             )
             for row in rows
         ]
+
+    def get_search_record(self, record_id: int) -> SearchRecord | None:
+        with self._engine.connect() as connection:
+            row = connection.execute(
+                select(
+                    records.c.id,
+                    records.c.display_text,
+                    records.c.record_type,
+                    records.c.lifecycle_state,
+                    records.c.task_list,
+                    records.c.completed_at,
+                    records.c.trashed_at,
+                    records.c.hidden_at,
+                    func.group_concat(tags.c.name, ", ").label("tag_names"),
+                )
+                .select_from(records)
+                .outerjoin(record_tags, record_tags.c.record_id == records.c.id)
+                .outerjoin(tags, tags.c.id == record_tags.c.tag_id)
+                .where(records.c.id == record_id)
+                .group_by(records.c.id)
+            ).one_or_none()
+        if row is None:
+            return None
+        return SearchRecord(
+            record_id=row.id,
+            display_text=row.display_text,
+            location=_record_location(
+                lifecycle_state=row.lifecycle_state,
+                task_list=row.task_list,
+                trashed=row.trashed_at is not None,
+                hidden=row.hidden_at is not None,
+            ),
+            tags=tuple(tag for tag in (row.tag_names or "").split(", ") if tag),
+            record_type=row.record_type,
+            lifecycle_state=row.lifecycle_state,
+            task_list=row.task_list,
+            trashed=row.trashed_at is not None,
+            hidden=row.hidden_at is not None,
+            completed=row.completed_at is not None,
+        )
 
     def get_processed_record(self, record_id: int) -> ProcessedRecord | None:
         with self._engine.connect() as connection:
@@ -974,6 +1022,31 @@ class TaskRepository:
                     records.c.hidden_at.is_(None),
                 )
                 .values(task_list=target_task_list, updated_at=changed_at)
+            )
+        return result.rowcount == 1
+
+    def resume_task(self, *, record_id: int, target_task_list: str, changed_at: str) -> bool:
+        if target_task_list not in {"today", "tomorrow", "week"}:
+            return False
+        with transaction(self._engine) as connection:
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.id == record_id,
+                    records.c.record_type == "task",
+                    records.c.lifecycle_state == "task",
+                    records.c.trashed_at.is_(None),
+                    records.c.hidden_at.is_not(None),
+                )
+                .values(
+                    task_list=target_task_list,
+                    completed_at=None,
+                    hidden_at=None,
+                    stale_prompted_at=None,
+                    stale_prompt_message_id=None,
+                    task_active_since=changed_at,
+                    updated_at=changed_at,
+                )
             )
         return result.rowcount == 1
 
