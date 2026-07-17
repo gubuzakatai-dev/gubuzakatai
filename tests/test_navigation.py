@@ -1,4 +1,15 @@
-from secondbrain.bot.navigation import build_folders_keyboard
+from secondbrain.bot.navigation import build_folders_keyboard, build_main_keyboard
+
+
+def test_main_keyboard_has_navigation_buttons() -> None:
+    keyboard = build_main_keyboard()
+
+    assert tuple(tuple(button.text for button in row) for row in keyboard.keyboard) == (
+        ("Сегодня", "Завтра", "Неделя"),
+        ("Папки", "Поиск"),
+    )
+    assert keyboard.resize_keyboard is True
+    assert keyboard.is_persistent is True
 
 
 def test_folders_keyboard_hides_empty_inbox_counter() -> None:

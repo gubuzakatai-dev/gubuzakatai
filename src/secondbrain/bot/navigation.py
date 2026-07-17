@@ -1,6 +1,6 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.error import TelegramError
-from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from secondbrain.services.evening_reminder import EveningReminderService
 from secondbrain.services.inbox import (
@@ -44,6 +44,16 @@ def register_navigation_handlers(
     task_service: TaskService | None = None,
 ) -> None:
     owner = filters.User(user_id=allowed_user_id)
+
+    async def open_main_menu(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        message = update.effective_message
+        if message is None:
+            return
+        await message.reply_text(
+            "Меню",
+            reply_markup=build_main_keyboard(),
+            disable_notification=True,
+        )
 
     async def open_folders(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         message = update.effective_message
@@ -750,6 +760,8 @@ def register_navigation_handlers(
         await query.message.delete()
         await _send_next_review(query, inbox_service)
 
+    application.add_handler(CommandHandler("start", open_main_menu, filters=owner), group=0)
+    application.add_handler(CommandHandler("menu", open_main_menu, filters=owner), group=0)
     application.add_handler(MessageHandler(owner & filters.Regex("^Папки$"), open_folders), group=0)
     application.add_handler(MessageHandler(owner & filters.Regex("^Поиск$"), open_search), group=0)
     if task_service is not None:
@@ -873,6 +885,17 @@ def build_folders_keyboard(*, inbox_count: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton("Поиск по тегам", callback_data="folders:tags")],
             [InlineKeyboardButton("Назад", callback_data="main:open")],
         ]
+    )
+
+
+def build_main_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [
+            ["Сегодня", "Завтра", "Неделя"],
+            ["Папки", "Поиск"],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
     )
 
 
