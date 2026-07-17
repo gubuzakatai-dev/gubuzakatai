@@ -10,6 +10,7 @@ class Settings:
     telegram_bot_token: str
     telegram_allowed_user_id: int
     database_path: Path
+    deepgram_api_key: str | None = None
 
 
 def load_settings() -> Settings:
@@ -34,4 +35,5 @@ def load_settings() -> Settings:
         telegram_bot_token=token,
         telegram_allowed_user_id=parsed_user_id,
         database_path=Path(os.getenv("DATABASE_PATH", "data/database/secondbrain.sqlite3")),
+        deepgram_api_key=os.getenv("DEEPGRAM_API_KEY", "").strip() or None,
     )

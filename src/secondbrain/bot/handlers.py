@@ -1,4 +1,10 @@
+import asyncio
+from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 from telegram import Update
+from telegram.error import TelegramError
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from secondbrain.bot.navigation import (
@@ -20,10 +26,11 @@ from secondbrain.services.inbox import (
     build_tag_management_keyboard,
     build_tag_selection_keyboard,
 )
+from secondbrain.services.voice import VoiceTranscriber, VoiceTranscriptionError
 
-VOICE_REPLY = (
-    "В первой версии отправьте текст. "
-    "Для диктовки используйте микрофон на клавиатуре телефона"
+VOICE_TRANSCRIPTION_FAILED_REPLY = (
+    "Не удалось распознать голосовое сообщение. Отправьте текстом или используйте диктовку "
+    "клавиатуры телефона."
 )
 
 
@@ -33,6 +40,7 @@ def register_capture_handlers(
     allowed_user_id: int,
     capture_service: CaptureService,
     inbox_service: InboxService | None = None,
+    voice_transcriber: VoiceTranscriber | None = None,
 ) -> None:
     owner = filters.User(user_id=allowed_user_id)
 
@@ -175,20 +183,52 @@ def register_capture_handlers(
                     disable_notification=True,
                 )
                 return
-        capture_service.capture_text(
+        capture_message_text(
             chat_id=message.chat_id,
             message_id=message.message_id,
             raw_text=message.text,
             telegram_sent_at=message.date,
         )
 
-    async def reject_voice(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def receive_voice(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         message = update.effective_message
-        if message is not None:
-            await message.reply_text(VOICE_REPLY, disable_notification=True)
+        if message is None or message.voice is None:
+            return
+        if voice_transcriber is None:
+            await message.reply_text(VOICE_TRANSCRIPTION_FAILED_REPLY, disable_notification=True)
+            return
+        try:
+            with TemporaryDirectory() as temporary_directory:
+                audio_path = Path(temporary_directory) / f"{message.chat_id}_{message.message_id}.ogg"
+                voice_file = await message.voice.get_file()
+                await voice_file.download_to_drive(custom_path=audio_path)
+                transcript = await asyncio.to_thread(voice_transcriber.transcribe, audio_path)
+        except (OSError, TelegramError, VoiceTranscriptionError):
+            await message.reply_text(VOICE_TRANSCRIPTION_FAILED_REPLY, disable_notification=True)
+            return
+        capture_message_text(
+            chat_id=message.chat_id,
+            message_id=message.message_id,
+            raw_text=transcript,
+            telegram_sent_at=message.date,
+        )
+
+    def capture_message_text(
+        *,
+        chat_id: int,
+        message_id: int,
+        raw_text: str,
+        telegram_sent_at: datetime,
+    ) -> None:
+        capture_service.capture_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            raw_text=raw_text,
+            telegram_sent_at=telegram_sent_at,
+        )
 
     navigation_texts = filters.Regex(f"^({'|'.join(NAVIGATION_TEXTS)})$")
     application.add_handler(
         MessageHandler(owner & filters.TEXT & ~filters.COMMAND & ~navigation_texts, receive_text)
     )
-    application.add_handler(MessageHandler(owner & filters.VOICE, reject_voice))
+    application.add_handler(MessageHandler(owner & filters.VOICE, receive_voice))
