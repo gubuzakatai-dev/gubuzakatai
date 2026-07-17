@@ -15,6 +15,7 @@ from secondbrain.services.inbox import (
     build_record_review_keyboard,
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
+    build_tag_search_keyboard,
     build_task_list_keyboard,
     build_trash_confirmation_keyboard,
 )
@@ -52,6 +53,16 @@ def register_navigation_handlers(
         await query.edit_message_text(
             "Папки",
             reply_markup=build_folders_keyboard(inbox_count=inbox_service.count()),
+        )
+
+    async def open_tags_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer()
+        await query.edit_message_text(
+            "Теги",
+            reply_markup=build_tag_search_keyboard(inbox_service.list_tags()),
         )
 
     async def open_today(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -530,6 +541,7 @@ def register_navigation_handlers(
             group=0,
         )
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
+    application.add_handler(CallbackQueryHandler(open_tags_callback, pattern="^folders:tags$"), group=0)
     application.add_handler(
         CallbackQueryHandler(open_processed_callback, pattern="^(folders:processed|processed:page:)"),
         group=0,

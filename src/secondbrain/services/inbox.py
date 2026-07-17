@@ -316,6 +316,15 @@ def build_processed_tag_selection_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
+def build_tag_search_keyboard(tags: list[TagOption]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(tag.name, callback_data=f"tags:select:{tag.tag_id}:page:0")]
+        for tag in tags
+    ]
+    rows.append([InlineKeyboardButton("Назад", callback_data="folders:open")])
+    return InlineKeyboardMarkup(rows)
+
+
 def build_trash_confirmation_keyboard(record_id: int, page: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [

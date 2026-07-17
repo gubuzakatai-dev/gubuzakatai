@@ -16,6 +16,7 @@ from secondbrain.services.inbox import (
     build_record_review_keyboard,
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
+    build_tag_search_keyboard,
     build_task_list_keyboard,
     build_trash_confirmation_keyboard,
 )
@@ -440,6 +441,19 @@ def test_tag_selection_keyboard_marks_selected_tags(tmp_path: Path) -> None:
     assert keyboard.inline_keyboard[0][0].callback_data == f"inbox:tag_toggle:42:{tags[0].tag_id}:3"
     assert keyboard.inline_keyboard[1][0].text == tags[1].name
     assert keyboard.inline_keyboard[-2][0].callback_data == "inbox:tag_save:42:3"
+
+
+def test_tag_search_keyboard_lists_available_tags(tmp_path: Path) -> None:
+    _capture, inbox, _engine = _services(tmp_path)
+    tags = inbox.list_tags()
+
+    keyboard = build_tag_search_keyboard(tags[:2])
+
+    assert keyboard.inline_keyboard[0][0].text == tags[0].name
+    assert keyboard.inline_keyboard[0][0].callback_data == f"tags:select:{tags[0].tag_id}:page:0"
+    assert keyboard.inline_keyboard[1][0].text == tags[1].name
+    assert keyboard.inline_keyboard[-1][0].text == "Назад"
+    assert keyboard.inline_keyboard[-1][0].callback_data == "folders:open"
 
 
 def test_save_tags_marks_record_processed_and_assigns_tags(tmp_path: Path) -> None:
