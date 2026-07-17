@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, select, update
 
 from secondbrain.services.capture import CaptureService
 from secondbrain.services.inbox import (
@@ -15,6 +15,7 @@ from secondbrain.services.inbox import (
     build_processed_trash_confirmation_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
+    build_search_results_keyboard,
     build_tag_selection_keyboard,
     build_tag_search_keyboard,
     build_tag_search_results_keyboard,
@@ -507,6 +508,84 @@ def test_tag_search_results_keyboard_keeps_tag_context(tmp_path: Path) -> None:
 
     assert keyboard.inline_keyboard[-2][0].callback_data == "folders:tags"
     assert keyboard.inline_keyboard[-1][0].callback_data == "folders:open"
+
+
+def test_text_search_finds_records_across_all_states(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    inbox_record = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Поездка входящие",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    processed_record = capture.capture_text(
+        chat_id=10,
+        message_id=2,
+        raw_text="Поездка разобранные",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 1, tzinfo=UTC),
+    )
+    task_record = capture.capture_text(
+        chat_id=10,
+        message_id=3,
+        raw_text="Сегодня поездка задача",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 2, tzinfo=UTC),
+    )
+    hidden_record = capture.capture_text(
+        chat_id=10,
+        message_id=4,
+        raw_text="Сегодня поездка выполненная",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 3, tzinfo=UTC),
+    )
+    trashed_record = capture.capture_text(
+        chat_id=10,
+        message_id=5,
+        raw_text="Поездка корзина",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 4, tzinfo=UTC),
+    )
+    tag = inbox.list_tags()[0]
+    assert inbox.save_tags(record_id=processed_record.record_id, tag_ids=(tag.tag_id,)) is True
+    with engine.begin() as connection:
+        connection.execute(
+            update(records)
+            .where(records.c.id == hidden_record.record_id)
+            .values(completed_at="2026-07-16T10:04:00+00:00", hidden_at="2026-07-16T21:00:00+00:00")
+        )
+        connection.execute(
+            update(records)
+            .where(records.c.id == trashed_record.record_id)
+            .values(trashed_at="2026-07-16T10:05:00+00:00")
+        )
+
+    page = inbox.build_search_page(query="поезд")
+
+    assert page.record_ids == (
+        trashed_record.record_id,
+        hidden_record.record_id,
+        task_record.record_id,
+        processed_record.record_id,
+        inbox_record.record_id,
+    )
+    assert "Место: Корзина" in page.text
+    assert "Место: Выполнено" in page.text
+    assert "Место: Сегодня" in page.text
+    assert "Место: Разобранные" in page.text
+    assert "Место: Входящие" in page.text
+    assert f"Теги: {tag.name}" in page.text
+
+
+def test_search_results_keyboard_has_new_search_and_back(tmp_path: Path) -> None:
+    capture, inbox, _engine = _services(tmp_path)
+    capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Найти меня",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    keyboard = build_search_results_keyboard(inbox.build_search_page(query="найти"))
+
+    assert keyboard.inline_keyboard[-2][0].callback_data == "search:open"
+    assert keyboard.inline_keyboard[-1][0].callback_data == "main:open"
 
 
 def test_tag_management_keyboard_keeps_record_context(tmp_path: Path) -> None:

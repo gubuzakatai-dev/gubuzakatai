@@ -4,6 +4,8 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 from secondbrain.bot.navigation import (
     NAVIGATION_TEXTS,
     PROCESSED_EDIT_TEXT_KEY,
+    SEARCH_QUERY_KEY,
+    SEARCH_TEXT_KEY,
     TAG_CREATE_TEXT_KEY,
     TAG_RENAME_TEXT_KEY,
 )
@@ -14,6 +16,7 @@ from secondbrain.services.inbox import (
     build_processed_keyboard,
     build_processed_review_keyboard,
     build_processed_tag_selection_keyboard,
+    build_search_results_keyboard,
     build_tag_management_keyboard,
     build_tag_selection_keyboard,
 )
@@ -36,6 +39,19 @@ def register_capture_handlers(
     async def receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         message = update.effective_message
         if message is None or message.text is None:
+            return
+        if inbox_service is not None and context.user_data.get(SEARCH_TEXT_KEY):
+            page = inbox_service.build_search_page(query=message.text)
+            if page.text == "Введите текст для поиска":
+                await message.reply_text(page.text, disable_notification=True)
+                return
+            context.user_data.pop(SEARCH_TEXT_KEY, None)
+            context.user_data[SEARCH_QUERY_KEY] = message.text
+            await message.reply_text(
+                page.text,
+                reply_markup=build_search_results_keyboard(page),
+                disable_notification=True,
+            )
             return
         tag_rename_state = context.user_data.get(TAG_RENAME_TEXT_KEY)
         if inbox_service is not None and isinstance(tag_rename_state, dict):

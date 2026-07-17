@@ -1,6 +1,15 @@
+import unicodedata
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from secondbrain.models.records import InboxNextReview, InboxPage, ProcessedPage, TagOption, TagSearchPage
+from secondbrain.models.records import (
+    InboxNextReview,
+    InboxPage,
+    ProcessedPage,
+    SearchPage,
+    TagOption,
+    TagSearchPage,
+)
 from secondbrain.storage.database import utc_now_text
 from secondbrain.storage.repositories import InboxRepository
 
@@ -124,6 +133,65 @@ class InboxService:
             text="\n".join(lines),
             record_ids=tuple(record_ids),
             tag_id=tag_id,
+            page=page,
+            has_previous=page > 0,
+            has_next=end < len(records),
+        )
+
+    def build_search_page(self, *, query: str, page: int = 0) -> SearchPage:
+        normalized_query = _search_text(query)
+        if not normalized_query:
+            return SearchPage(
+                text="Введите текст для поиска",
+                record_ids=(),
+                query=query,
+                page=0,
+                has_previous=False,
+                has_next=False,
+            )
+        records = [
+            record
+            for record in self._repository.list_search_records()
+            if normalized_query in _search_text(record.display_text)
+        ]
+        if not records:
+            return SearchPage(
+                text="Ничего не найдено",
+                record_ids=(),
+                query=query,
+                page=0,
+                has_previous=False,
+                has_next=False,
+            )
+
+        page = max(page, 0)
+        start = page * MAX_RECORDS_PER_PAGE
+        if start >= len(records):
+            page = max((len(records) - 1) // MAX_RECORDS_PER_PAGE, 0)
+            start = page * MAX_RECORDS_PER_PAGE
+
+        selected = records[start : start + MAX_RECORDS_PER_PAGE]
+        lines = [f"Поиск: {query.strip()}"]
+        record_ids: list[int] = []
+        for number, record in enumerate(selected, start=1):
+            tags_line = f"Теги: {', '.join(record.tags)}" if record.tags else "Теги: нет"
+            candidate_lines = [
+                *lines,
+                "",
+                f"{number}. {record.display_text}",
+                f"Место: {record.location}",
+                tags_line,
+            ]
+            if record_ids and len("\n".join(candidate_lines)) > MAX_PROCESSED_MESSAGE_LENGTH:
+                break
+            lines = candidate_lines
+            record_ids.append(record.record_id)
+
+        end = start + len(record_ids)
+        return SearchPage(
+            text="\n".join(lines),
+            record_ids=tuple(record_ids),
+            query=query,
             page=page,
             has_previous=page > 0,
             has_next=end < len(records),
@@ -400,6 +468,20 @@ def build_tag_search_results_keyboard(page: TagSearchPage) -> InlineKeyboardMark
     return InlineKeyboardMarkup(rows)
 
 
+def build_search_results_keyboard(page: SearchPage) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    navigation: list[InlineKeyboardButton] = []
+    if page.has_previous:
+        navigation.append(InlineKeyboardButton("←", callback_data=f"search:page:{page.page - 1}"))
+    if page.has_next:
+        navigation.append(InlineKeyboardButton("→", callback_data=f"search:page:{page.page + 1}"))
+    if navigation:
+        rows.append(navigation)
+    rows.append([InlineKeyboardButton("Новый поиск", callback_data="search:open")])
+    rows.append([InlineKeyboardButton("Назад", callback_data="main:open")])
+    return InlineKeyboardMarkup(rows)
+
+
 def build_tag_management_keyboard(
     *,
     scope: str,
@@ -460,3 +542,7 @@ def build_processed_trash_confirmation_keyboard(record_id: int, page: int) -> In
             [InlineKeyboardButton("Отмена", callback_data=f"processed:record:{record_id}:page:{page}")],
         ]
     )
+
+
+def _search_text(text: str) -> str:
+    return unicodedata.normalize("NFC", text.strip()).casefold()

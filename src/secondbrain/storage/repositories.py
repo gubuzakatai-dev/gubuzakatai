@@ -12,6 +12,7 @@ from secondbrain.models.records import (
     EveningReminder,
     ProcessedRecord,
     ReviewRecord,
+    SearchRecord,
     TagOption,
     TaskRecord,
 )
@@ -634,6 +635,40 @@ class InboxRepository:
             for row in rows
         ]
 
+    def list_search_records(self) -> list[SearchRecord]:
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    records.c.id,
+                    records.c.display_text,
+                    records.c.lifecycle_state,
+                    records.c.task_list,
+                    records.c.trashed_at,
+                    records.c.hidden_at,
+                    func.group_concat(tags.c.name, ", ").label("tag_names"),
+                    records.c.created_at,
+                )
+                .select_from(records)
+                .outerjoin(record_tags, record_tags.c.record_id == records.c.id)
+                .outerjoin(tags, tags.c.id == record_tags.c.tag_id)
+                .group_by(records.c.id)
+                .order_by(records.c.created_at.desc(), records.c.id.desc())
+            ).all()
+        return [
+            SearchRecord(
+                record_id=row.id,
+                display_text=row.display_text,
+                location=_record_location(
+                    lifecycle_state=row.lifecycle_state,
+                    task_list=row.task_list,
+                    trashed=row.trashed_at is not None,
+                    hidden=row.hidden_at is not None,
+                ),
+                tags=tuple(tag for tag in (row.tag_names or "").split(", ") if tag),
+            )
+            for row in rows
+        ]
+
     def get_processed_record(self, record_id: int) -> ProcessedRecord | None:
         with self._engine.connect() as connection:
             row = connection.execute(
@@ -1056,3 +1091,27 @@ def _tag_display_name(name: str) -> str | None:
     if any(character in display_name for character in "\r\n\t"):
         return None
     return display_name
+
+
+def _record_location(
+    *,
+    lifecycle_state: str,
+    task_list: str | None,
+    trashed: bool,
+    hidden: bool,
+) -> str:
+    if trashed:
+        return "Корзина"
+    if hidden:
+        return "Выполнено"
+    if lifecycle_state == "inbox":
+        return "Входящие"
+    if lifecycle_state == "processed":
+        return "Разобранные"
+    if task_list == "today":
+        return "Сегодня"
+    if task_list == "tomorrow":
+        return "Завтра"
+    if task_list == "week":
+        return "Неделя"
+    return "Запись"

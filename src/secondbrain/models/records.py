@@ -60,6 +60,24 @@ class TagSearchPage:
 
 
 @dataclass(frozen=True, slots=True)
+class SearchRecord:
+    record_id: int
+    display_text: str
+    location: str
+    tags: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SearchPage:
+    text: str
+    record_ids: tuple[int, ...]
+    query: str
+    page: int
+    has_previous: bool
+    has_next: bool
+
+
+@dataclass(frozen=True, slots=True)
 class TaskRecord:
     record_id: int
     display_text: str

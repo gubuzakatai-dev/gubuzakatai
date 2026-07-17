@@ -14,6 +14,7 @@ from secondbrain.services.inbox import (
     build_processed_trash_confirmation_keyboard,
     build_record_review_keyboard,
     build_review_routes_keyboard,
+    build_search_results_keyboard,
     build_tag_selection_keyboard,
     build_tag_search_keyboard,
     build_tag_search_results_keyboard,
@@ -24,10 +25,12 @@ from secondbrain.services.inbox import (
 )
 from secondbrain.services.tasks import TaskService, build_task_page_keyboard
 
-NAVIGATION_TEXTS = frozenset({"Сегодня", "Завтра", "Неделя", "Папки"})
+NAVIGATION_TEXTS = frozenset({"Сегодня", "Завтра", "Неделя", "Папки", "Поиск"})
 PROCESSED_EDIT_TEXT_KEY = "processed_edit_text"
 TAG_CREATE_TEXT_KEY = "tag_create_text"
 TAG_RENAME_TEXT_KEY = "tag_rename_text"
+SEARCH_TEXT_KEY = "search_text"
+SEARCH_QUERY_KEY = "search_query"
 
 
 def register_navigation_handlers(
@@ -69,6 +72,38 @@ def register_navigation_handlers(
             "Теги",
             reply_markup=build_tag_search_keyboard(inbox_service.list_tags()),
         )
+
+    async def open_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        message = update.effective_message
+        if message is None:
+            return
+        context.user_data[SEARCH_TEXT_KEY] = True
+        await message.reply_text("Отправьте текст для поиска", disable_notification=True)
+
+    async def open_search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        context.user_data[SEARCH_TEXT_KEY] = True
+        await query.answer()
+        await query.edit_message_text("Отправьте текст для поиска")
+
+    async def open_search_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        search_query = context.user_data.get(SEARCH_QUERY_KEY)
+        if not isinstance(search_query, str):
+            await query.answer()
+            await query.edit_message_text("Отправьте текст для поиска")
+            context.user_data[SEARCH_TEXT_KEY] = True
+            return
+        await query.answer()
+        page = inbox_service.build_search_page(
+            query=search_query,
+            page=_page_from_callback(query.data),
+        )
+        await query.edit_message_text(page.text, reply_markup=build_search_results_keyboard(page))
 
     async def open_tag_search_results_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -624,6 +659,7 @@ def register_navigation_handlers(
         await _send_next_review(query, inbox_service)
 
     application.add_handler(MessageHandler(owner & filters.Regex("^Папки$"), open_folders), group=0)
+    application.add_handler(MessageHandler(owner & filters.Regex("^Поиск$"), open_search), group=0)
     if task_service is not None:
         application.add_handler(MessageHandler(owner & filters.Regex("^Сегодня$"), open_today), group=0)
         application.add_handler(MessageHandler(owner & filters.Regex("^Завтра$"), open_tomorrow), group=0)
@@ -645,6 +681,8 @@ def register_navigation_handlers(
             group=0,
         )
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
+    application.add_handler(CallbackQueryHandler(open_search_callback, pattern="^search:open$"), group=0)
+    application.add_handler(CallbackQueryHandler(open_search_page_callback, pattern="^search:page:"), group=0)
     application.add_handler(CallbackQueryHandler(open_tags_callback, pattern="^folders:tags$"), group=0)
     application.add_handler(CallbackQueryHandler(open_tag_search_results_callback, pattern="^tags:select:"), group=0)
     application.add_handler(CallbackQueryHandler(open_new_tag_callback, pattern="^tags:new:"), group=0)
