@@ -50,6 +50,16 @@ class ProcessedPage:
 
 
 @dataclass(frozen=True, slots=True)
+class TagSearchPage:
+    text: str
+    record_ids: tuple[int, ...]
+    tag_id: int
+    page: int
+    has_previous: bool
+    has_next: bool
+
+
+@dataclass(frozen=True, slots=True)
 class TaskRecord:
     record_id: int
     display_text: str

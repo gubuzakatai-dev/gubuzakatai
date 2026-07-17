@@ -16,6 +16,7 @@ from secondbrain.services.inbox import (
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
     build_tag_search_keyboard,
+    build_tag_search_results_keyboard,
     build_task_list_keyboard,
     build_tag_delete_confirmation_keyboard,
     build_tag_management_keyboard,
@@ -68,6 +69,15 @@ def register_navigation_handlers(
             "Теги",
             reply_markup=build_tag_search_keyboard(inbox_service.list_tags()),
         )
+
+    async def open_tag_search_results_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        tag_id, page_number = _tag_search_from_callback(query.data)
+        await query.answer()
+        page = inbox_service.build_tag_search_page(tag_id=tag_id, page=page_number)
+        await query.edit_message_text(page.text, reply_markup=build_tag_search_results_keyboard(page))
 
     async def open_today(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if task_service is None:
@@ -636,6 +646,7 @@ def register_navigation_handlers(
         )
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_tags_callback, pattern="^folders:tags$"), group=0)
+    application.add_handler(CallbackQueryHandler(open_tag_search_results_callback, pattern="^tags:select:"), group=0)
     application.add_handler(CallbackQueryHandler(open_new_tag_callback, pattern="^tags:new:"), group=0)
     application.add_handler(CallbackQueryHandler(back_to_tag_selection_callback, pattern="^tags:back:"), group=0)
     application.add_handler(CallbackQueryHandler(confirm_tag_delete_callback, pattern="^tags:delete_confirm:"), group=0)
@@ -857,6 +868,16 @@ def _tag_action_from_callback(data: str | None) -> tuple[str | None, int, int, i
         return parts[2], int(parts[3]), int(parts[4]), int(parts[5])
     except (IndexError, ValueError):
         return None, 0, 0, 0
+
+
+def _tag_search_from_callback(data: str | None) -> tuple[int, int]:
+    if data is None:
+        return 0, 0
+    parts = data.split(":")
+    try:
+        return int(parts[2]), int(parts[4])
+    except (IndexError, ValueError):
+        return 0, 0
 
 
 def _tag_name(inbox_service: InboxService, tag_id: int) -> str:

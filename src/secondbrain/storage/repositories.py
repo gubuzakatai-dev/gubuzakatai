@@ -599,6 +599,41 @@ class InboxRepository:
             for row in rows
         ]
 
+    def list_processed_by_tag(self, tag_id: int) -> list[ProcessedRecord]:
+        matching_record_ids = (
+            select(record_tags.c.record_id)
+            .where(record_tags.c.tag_id == tag_id)
+            .subquery()
+        )
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    records.c.id,
+                    records.c.display_text,
+                    func.group_concat(tags.c.name, ", ").label("tag_names"),
+                    records.c.created_at,
+                )
+                .select_from(records)
+                .join(matching_record_ids, matching_record_ids.c.record_id == records.c.id)
+                .outerjoin(record_tags, record_tags.c.record_id == records.c.id)
+                .outerjoin(tags, tags.c.id == record_tags.c.tag_id)
+                .where(
+                    records.c.record_type == "thought",
+                    records.c.lifecycle_state == "processed",
+                    records.c.trashed_at.is_(None),
+                )
+                .group_by(records.c.id)
+                .order_by(records.c.created_at.desc(), records.c.id.desc())
+            ).all()
+        return [
+            ProcessedRecord(
+                record_id=row.id,
+                display_text=row.display_text,
+                tags=tuple(tag for tag in (row.tag_names or "").split(", ") if tag),
+            )
+            for row in rows
+        ]
+
     def get_processed_record(self, record_id: int) -> ProcessedRecord | None:
         with self._engine.connect() as connection:
             row = connection.execute(

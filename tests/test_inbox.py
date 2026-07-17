@@ -17,6 +17,7 @@ from secondbrain.services.inbox import (
     build_review_routes_keyboard,
     build_tag_selection_keyboard,
     build_tag_search_keyboard,
+    build_tag_search_results_keyboard,
     build_tag_delete_confirmation_keyboard,
     build_tag_management_keyboard,
     build_task_list_keyboard,
@@ -459,6 +460,52 @@ def test_tag_search_keyboard_lists_available_tags(tmp_path: Path) -> None:
     assert keyboard.inline_keyboard[0][0].callback_data == f"tags:select:{tags[0].tag_id}:page:0"
     assert keyboard.inline_keyboard[1][0].text == tags[1].name
     assert keyboard.inline_keyboard[-1][0].text == "Назад"
+    assert keyboard.inline_keyboard[-1][0].callback_data == "folders:open"
+
+
+def test_tag_search_page_lists_processed_records_by_selected_tag(tmp_path: Path) -> None:
+    capture, inbox, _engine = _services(tmp_path)
+    first_tag, second_tag = inbox.list_tags()[:2]
+    older = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Старая запись",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    newer = capture.capture_text(
+        chat_id=10,
+        message_id=2,
+        raw_text="Новая запись",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 1, tzinfo=UTC),
+    )
+    other = capture.capture_text(
+        chat_id=10,
+        message_id=3,
+        raw_text="Другой тег",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 2, tzinfo=UTC),
+    )
+    assert inbox.save_tags(record_id=older.record_id, tag_ids=(first_tag.tag_id,)) is True
+    assert inbox.save_tags(record_id=newer.record_id, tag_ids=(first_tag.tag_id, second_tag.tag_id)) is True
+    assert inbox.save_tags(record_id=other.record_id, tag_ids=(second_tag.tag_id,)) is True
+
+    page = inbox.build_tag_search_page(tag_id=first_tag.tag_id)
+
+    assert page.record_ids == (newer.record_id, older.record_id)
+    assert page.text == (
+        f"Тег: {first_tag.name}\n\n"
+        f"1. Новая запись\nТеги: {first_tag.name}, {second_tag.name}\n\n"
+        f"2. Старая запись\nТеги: {first_tag.name}"
+    )
+
+
+def test_tag_search_results_keyboard_keeps_tag_context(tmp_path: Path) -> None:
+    _capture, inbox, _engine = _services(tmp_path)
+    tag = inbox.list_tags()[0]
+    page = inbox.build_tag_search_page(tag_id=tag.tag_id)
+
+    keyboard = build_tag_search_results_keyboard(page)
+
+    assert keyboard.inline_keyboard[-2][0].callback_data == "folders:tags"
     assert keyboard.inline_keyboard[-1][0].callback_data == "folders:open"
 
 
