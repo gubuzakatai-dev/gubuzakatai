@@ -473,3 +473,89 @@ def test_resume_hidden_task_returns_it_to_selected_list(tmp_path: Path) -> None:
     assert row.stale_prompted_at is None
     assert row.stale_prompt_message_id is None
     assert row.task_active_since is not None
+
+
+def test_prepare_stale_task_prompt_selects_oldest_unprompted_active_task(tmp_path: Path) -> None:
+    engine = create_database_engine(tmp_path / "test.sqlite3")
+    initialize_database(engine)
+    capture = CaptureService(CaptureRepository(engine))
+    tasks = TaskService(TaskRepository(engine))
+    fresh = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Fresh",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    old_prompted = capture.capture_text(
+        chat_id=10,
+        message_id=2,
+        raw_text="Old prompted",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 1, tzinfo=UTC),
+    )
+    old_done = capture.capture_text(
+        chat_id=10,
+        message_id=3,
+        raw_text="Old done",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 2, tzinfo=UTC),
+    )
+    oldest = capture.capture_text(
+        chat_id=10,
+        message_id=4,
+        raw_text="Oldest active",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 3, tzinfo=UTC),
+    )
+    old_active = capture.capture_text(
+        chat_id=10,
+        message_id=5,
+        raw_text="Old active",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 4, tzinfo=UTC),
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            update(records)
+            .where(records.c.id.in_([fresh.record_id, old_prompted.record_id, old_done.record_id, oldest.record_id, old_active.record_id]))
+            .values(record_type="task", lifecycle_state="task", task_list="today")
+        )
+        connection.execute(
+            update(records)
+            .where(records.c.id == fresh.record_id)
+            .values(task_active_since="2026-07-08T21:30:00+00:00")
+        )
+        connection.execute(
+            update(records)
+            .where(records.c.id == old_prompted.record_id)
+            .values(
+                task_active_since="2026-07-01T21:30:00+00:00",
+                stale_prompted_at="2026-07-10T21:00:00+00:00",
+            )
+        )
+        connection.execute(
+            update(records)
+            .where(records.c.id == old_done.record_id)
+            .values(
+                task_active_since="2026-07-01T21:30:00+00:00",
+                completed_at="2026-07-10T21:00:00+00:00",
+            )
+        )
+        connection.execute(
+            update(records)
+            .where(records.c.id == oldest.record_id)
+            .values(task_active_since="2026-07-01T21:30:00+00:00", task_list="tomorrow")
+        )
+        connection.execute(
+            update(records)
+            .where(records.c.id == old_active.record_id)
+            .values(task_active_since="2026-07-02T21:30:00+00:00", task_list="week")
+        )
+
+    prompt = tasks.prepare_stale_task_prompt(now=datetime(2026, 7, 10, 21, 1, tzinfo=UTC))
+
+    assert prompt is not None
+    assert prompt.record_id == oldest.record_id
+    assert prompt.display_text == "Oldest active"
+    assert prompt.task_list == "tomorrow"
+    with engine.connect() as connection:
+        prompted_at = connection.scalar(
+            select(records.c.stale_prompted_at).where(records.c.id == oldest.record_id)
+        )
+    assert prompted_at is not None

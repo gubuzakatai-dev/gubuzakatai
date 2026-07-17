@@ -13,6 +13,7 @@ from secondbrain.models.records import (
     ProcessedRecord,
     ReviewRecord,
     SearchRecord,
+    StaleTaskPrompt,
     TagOption,
     TaskRecord,
 )
@@ -1083,6 +1084,65 @@ class TaskRepository:
                 )
             )
         return result.rowcount == 1
+
+    def prepare_stale_task_prompt(
+        self,
+        *,
+        record_id: int,
+        prompted_at: str,
+    ) -> StaleTaskPrompt | None:
+        with transaction(self._engine) as connection:
+            row = connection.execute(
+                select(
+                    records.c.id,
+                    records.c.display_text,
+                    records.c.task_list,
+                ).where(
+                    records.c.id == record_id,
+                    records.c.record_type == "task",
+                    records.c.lifecycle_state == "task",
+                    records.c.task_list.is_not(None),
+                    records.c.completed_at.is_(None),
+                    records.c.hidden_at.is_(None),
+                    records.c.trashed_at.is_(None),
+                    records.c.stale_prompted_at.is_(None),
+                )
+            ).one_or_none()
+            if row is None:
+                return None
+            result = connection.execute(
+                update(records)
+                .where(
+                    records.c.id == record_id,
+                    records.c.stale_prompted_at.is_(None),
+                )
+                .values(stale_prompted_at=prompted_at, updated_at=prompted_at)
+            )
+            if result.rowcount != 1:
+                return None
+        return StaleTaskPrompt(
+            record_id=row.id,
+            display_text=row.display_text,
+            task_list=row.task_list,
+        )
+
+    def list_stale_task_candidates(self) -> list[tuple[int, str]]:
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(records.c.id, records.c.task_active_since)
+                .where(
+                    records.c.record_type == "task",
+                    records.c.lifecycle_state == "task",
+                    records.c.task_list.is_not(None),
+                    records.c.completed_at.is_(None),
+                    records.c.hidden_at.is_(None),
+                    records.c.trashed_at.is_(None),
+                    records.c.stale_prompted_at.is_(None),
+                    records.c.task_active_since.is_not(None),
+                )
+                .order_by(records.c.task_active_since, records.c.id)
+            ).all()
+        return [(row.id, row.task_active_since) for row in rows]
 
     def process_today_rollover_once(
         self,

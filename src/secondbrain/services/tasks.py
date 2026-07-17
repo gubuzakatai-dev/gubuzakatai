@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from secondbrain.models.records import TaskPage
+from secondbrain.models.records import StaleTaskPrompt, TaskPage
 from secondbrain.storage.database import utc_now_text
 from secondbrain.storage.repositories import TaskRepository
 
@@ -11,6 +11,7 @@ MAX_TASKS_PER_PAGE = 10
 MAX_TASK_MESSAGE_LENGTH = 3500
 TASK_DAILY_ROLLOVER_JOB_NAME = "task_daily_rollover"
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+STALE_TASK_DAYS = 8
 
 TASK_LIST_TITLES = {
     "today": "Сегодня",
@@ -102,6 +103,19 @@ class TaskService:
             cutoff_at=cutoff_at,
             changed_at=utc_now_text(),
         )
+
+    def prepare_stale_task_prompt(self, now: datetime | None = None) -> StaleTaskPrompt | None:
+        now = _aware_now(now)
+        local_date = now.astimezone(MOSCOW_TZ).date()
+        for record_id, task_active_since in self._repository.list_stale_task_candidates():
+            active_since = datetime.fromisoformat(task_active_since).astimezone(MOSCOW_TZ).date()
+            if (local_date - active_since).days <= STALE_TASK_DAYS:
+                continue
+            return self._repository.prepare_stale_task_prompt(
+                record_id=record_id,
+                prompted_at=utc_now_text(),
+            )
+        return None
 
 
 def build_task_page_keyboard(task_list: str, page: TaskPage) -> InlineKeyboardMarkup:

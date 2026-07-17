@@ -91,6 +91,13 @@ class TaskRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class StaleTaskPrompt:
+    record_id: int
+    display_text: str
+    task_list: str
+
+
+@dataclass(frozen=True, slots=True)
 class TaskPage:
     text: str
     record_ids: tuple[int, ...]
