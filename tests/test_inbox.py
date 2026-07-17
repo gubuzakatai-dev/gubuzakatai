@@ -631,6 +631,25 @@ def test_search_resume_keyboard_keeps_record_context() -> None:
     assert keyboard.inline_keyboard[3][0].callback_data == "search:record:42:page:3"
 
 
+def test_search_record_keyboard_can_restore_trashed_record(tmp_path: Path) -> None:
+    capture, inbox, _engine = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Trash me",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    assert inbox.move_to_trash(record_id=captured.record_id) is True
+    record = inbox.get_search_record(captured.record_id)
+    assert record is not None
+
+    keyboard = build_search_record_keyboard(record, page=2)
+
+    assert keyboard.inline_keyboard[0][0].callback_data == f"search:restore:{captured.record_id}:page:2"
+    assert keyboard.inline_keyboard[-1][0].callback_data == "search:page:2"
+
+
 def test_tag_management_keyboard_keeps_record_context(tmp_path: Path) -> None:
     _capture, inbox, _engine = _services(tmp_path)
     tags = inbox.list_tags()
@@ -755,4 +774,26 @@ def test_move_inbox_record_to_trash_preserves_source_and_previous_state(tmp_path
     assert record.lifecycle_state == "inbox"
     assert record.trashed_at is not None
     assert record.pre_trash_lifecycle_state == "inbox"
+    assert source_count == 1
+
+
+def test_restore_inbox_record_from_trash_returns_existing_record(tmp_path: Path) -> None:
+    capture, inbox, engine = _services(tmp_path)
+    captured = capture.capture_text(
+        chat_id=10,
+        message_id=1,
+        raw_text="Restore me",
+        telegram_sent_at=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+
+    assert inbox.move_to_trash(record_id=captured.record_id) is True
+    assert inbox.restore_from_trash(record_id=captured.record_id) is True
+
+    with engine.connect() as connection:
+        record = connection.execute(select(records)).one()
+        source_count = connection.scalar(select(func.count()).select_from(source_messages))
+    assert record.id == captured.record_id
+    assert record.lifecycle_state == "inbox"
+    assert record.trashed_at is None
+    assert record.pre_trash_lifecycle_state is None
     assert source_count == 1

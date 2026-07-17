@@ -571,6 +571,40 @@ class InboxRepository:
                 )
         return True
 
+    def restore_from_trash(self, *, record_id: int, restored_at: str) -> bool:
+        with transaction(self._engine) as connection:
+            existing = connection.execute(
+                select(
+                    records.c.pre_trash_lifecycle_state,
+                    records.c.pre_trash_task_list,
+                    records.c.pre_trash_completed_at,
+                    records.c.pre_trash_hidden_at,
+                ).where(
+                    records.c.id == record_id,
+                    records.c.trashed_at.is_not(None),
+                    records.c.pre_trash_lifecycle_state.is_not(None),
+                )
+            ).one_or_none()
+            if existing is None:
+                return False
+            connection.execute(
+                update(records)
+                .where(records.c.id == record_id)
+                .values(
+                    lifecycle_state=existing.pre_trash_lifecycle_state,
+                    task_list=existing.pre_trash_task_list,
+                    completed_at=existing.pre_trash_completed_at,
+                    hidden_at=existing.pre_trash_hidden_at,
+                    trashed_at=None,
+                    pre_trash_lifecycle_state=None,
+                    pre_trash_task_list=None,
+                    pre_trash_completed_at=None,
+                    pre_trash_hidden_at=None,
+                    updated_at=restored_at,
+                )
+            )
+        return True
+
     def list_processed(self) -> list[ProcessedRecord]:
         with self._engine.connect() as connection:
             rows = connection.execute(

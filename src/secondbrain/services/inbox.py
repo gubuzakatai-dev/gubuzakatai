@@ -297,6 +297,9 @@ class InboxService:
     def move_processed_to_trash(self, *, record_id: int) -> bool:
         return self._repository.move_processed_to_trash(record_id=record_id, trashed_at=utc_now_text())
 
+    def restore_from_trash(self, *, record_id: int) -> bool:
+        return self._repository.restore_from_trash(record_id=record_id, restored_at=utc_now_text())
+
 
 def build_inbox_keyboard(page: InboxPage) -> InlineKeyboardMarkup:
     if not page.record_ids:
@@ -503,7 +506,9 @@ def build_search_results_keyboard(page: SearchPage) -> InlineKeyboardMarkup:
 
 def build_search_record_keyboard(record: SearchRecord, page: int) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    if record.record_type == "task" and record.hidden and not record.trashed:
+    if record.trashed:
+        rows.append([InlineKeyboardButton("Восстановить", callback_data=f"search:restore:{record.record_id}:page:{page}")])
+    elif record.record_type == "task" and record.hidden:
         rows.append([InlineKeyboardButton("Возобновить", callback_data=f"search:resume:{record.record_id}:page:{page}")])
     rows.append([InlineKeyboardButton("Назад", callback_data=f"search:page:{page}")])
     return InlineKeyboardMarkup(rows)

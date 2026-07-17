@@ -150,6 +150,20 @@ def register_navigation_handlers(
             return
         await query.edit_message_text("Готово" if resumed else "Не удалось сохранить")
 
+    async def restore_search_record_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        record_id, page_number = _search_record_from_callback(query.data)
+        restored = inbox_service.restore_from_trash(record_id=record_id)
+        await query.answer("Сохранено" if restored else "Не удалось сохранить")
+        search_query = context.user_data.get(SEARCH_QUERY_KEY)
+        if isinstance(search_query, str):
+            page = inbox_service.build_search_page(query=search_query, page=page_number)
+            await query.edit_message_text(page.text, reply_markup=build_search_results_keyboard(page))
+            return
+        await query.edit_message_text("Готово" if restored else "Не удалось сохранить")
+
     async def open_tag_search_results_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         if query is None or query.message is None:
@@ -728,6 +742,7 @@ def register_navigation_handlers(
     application.add_handler(CallbackQueryHandler(folders_callback, pattern="^folders:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_search_callback, pattern="^search:open$"), group=0)
     application.add_handler(CallbackQueryHandler(open_search_page_callback, pattern="^search:page:"), group=0)
+    application.add_handler(CallbackQueryHandler(restore_search_record_callback, pattern="^search:restore:"), group=0)
     application.add_handler(CallbackQueryHandler(resume_search_task_callback, pattern="^search:resume_list:"), group=0)
     application.add_handler(CallbackQueryHandler(open_search_resume_callback, pattern="^search:resume:"), group=0)
     application.add_handler(CallbackQueryHandler(open_search_record_callback, pattern="^search:record:"), group=0)
