@@ -5,7 +5,7 @@ from telegram.error import TelegramError
 from telegram.ext import Application, ContextTypes
 
 from secondbrain.bot.handlers import register_capture_handlers
-from secondbrain.bot.navigation import register_navigation_handlers
+from secondbrain.bot.navigation import register_navigation_handlers, register_user_id_discovery_handler
 from secondbrain.config.settings import Settings, load_settings
 from secondbrain.services.capture import CaptureService
 from secondbrain.services.evening_reminder import (
@@ -22,6 +22,7 @@ from secondbrain.services.tasks import (
     build_stale_task_prompt_keyboard,
     build_stale_task_prompt_text,
 )
+from secondbrain.services.voice import VoiceTranscriber, build_voice_transcriber
 from secondbrain.storage.database import create_database_engine, initialize_database
 from secondbrain.storage.repositories import (
     CaptureRepository,
@@ -46,9 +47,13 @@ def build_application(
     inbox_service: InboxService | None = None,
     evening_reminder_service: EveningReminderService | None = None,
     task_service: TaskService | None = None,
+    voice_transcriber: VoiceTranscriber | None = None,
 ) -> Application:
     """Build the Telegram application without starting network operations."""
     application = Application.builder().token(settings.telegram_bot_token).build()
+    if settings.telegram_allowed_user_id == 0:
+        register_user_id_discovery_handler(application)
+        return application
     if inbox_service is not None:
         register_navigation_handlers(
             application,
@@ -63,6 +68,7 @@ def build_application(
             allowed_user_id=settings.telegram_allowed_user_id,
             capture_service=capture_service,
             inbox_service=inbox_service,
+            voice_transcriber=voice_transcriber,
         )
     if link_metadata_service is not None:
         register_link_metadata_job(application, link_metadata_service)
@@ -228,6 +234,7 @@ def main() -> None:
         inbox_service,
         evening_reminder_service,
         task_service,
+        build_voice_transcriber(settings.deepgram_api_key),
     )
     logging.getLogger(__name__).info("SecondBrain запускает Telegram polling")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
