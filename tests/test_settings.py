@@ -29,11 +29,20 @@ def test_load_settings_parses_allowed_user(monkeypatch: pytest.MonkeyPatch) -> N
 def test_load_settings_allows_missing_deepgram_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "123")
-    monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "")
 
     settings = load_settings()
 
     assert settings.deepgram_api_key is None
+
+
+def test_load_settings_allows_zero_user_id_for_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "0")
+
+    settings = load_settings()
+
+    assert settings.telegram_allowed_user_id == 0
 
 
 def test_httpx_info_logging_is_disabled() -> None:

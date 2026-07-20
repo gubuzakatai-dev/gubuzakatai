@@ -888,6 +888,20 @@ def build_folders_keyboard(*, inbox_count: int) -> InlineKeyboardMarkup:
     )
 
 
+def register_user_id_discovery_handler(application: Application) -> None:
+    async def show_user_id(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        message = update.effective_message
+        user = update.effective_user
+        if message is None or user is None:
+            return
+        await message.reply_text(
+            f"Ваш Telegram ID: {user.id}",
+            disable_notification=True,
+        )
+
+    application.add_handler(CommandHandler("start", show_user_id), group=0)
+
+
 def build_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [

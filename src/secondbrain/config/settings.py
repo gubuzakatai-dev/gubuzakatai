@@ -28,8 +28,8 @@ def load_settings() -> Settings:
         parsed_user_id = int(allowed_user_id)
     except ValueError as error:
         raise RuntimeError("TELEGRAM_ALLOWED_USER_ID должен быть целым числом") from error
-    if parsed_user_id <= 0:
-        raise RuntimeError("TELEGRAM_ALLOWED_USER_ID должен быть положительным числом")
+    if parsed_user_id < 0:
+        raise RuntimeError("TELEGRAM_ALLOWED_USER_ID должен быть положительным числом или 0")
 
     return Settings(
         telegram_bot_token=token,

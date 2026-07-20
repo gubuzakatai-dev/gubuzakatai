@@ -5,7 +5,7 @@ from telegram.error import TelegramError
 from telegram.ext import Application, ContextTypes
 
 from secondbrain.bot.handlers import register_capture_handlers
-from secondbrain.bot.navigation import register_navigation_handlers
+from secondbrain.bot.navigation import register_navigation_handlers, register_user_id_discovery_handler
 from secondbrain.config.settings import Settings, load_settings
 from secondbrain.services.capture import CaptureService
 from secondbrain.services.evening_reminder import (
@@ -51,6 +51,9 @@ def build_application(
 ) -> Application:
     """Build the Telegram application without starting network operations."""
     application = Application.builder().token(settings.telegram_bot_token).build()
+    if settings.telegram_allowed_user_id == 0:
+        register_user_id_discovery_handler(application)
+        return application
     if inbox_service is not None:
         register_navigation_handlers(
             application,

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from secondbrain.app import (
     CONFIRMATION_INTERVAL_SECONDS,
     CONFIRMATION_JOB_NAME,
@@ -5,11 +7,13 @@ from secondbrain.app import (
     LINK_METADATA_INTERVAL_SECONDS,
     LINK_METADATA_JOB_NAME,
     TASK_DAILY_ROLLOVER_INTERVAL_SECONDS,
+    build_application,
     register_confirmation_job,
     register_evening_reminder_job,
     register_link_metadata_job,
     register_task_daily_rollover_job,
 )
+from secondbrain.config.settings import Settings
 from secondbrain.services.evening_reminder import EVENING_REMINDER_JOB_NAME
 from secondbrain.services.tasks import TASK_DAILY_ROLLOVER_JOB_NAME
 
@@ -90,3 +94,21 @@ def test_register_task_daily_rollover_job_schedules_periodic_processing() -> Non
     assert application.job_queue.jobs[0]["name"] == TASK_DAILY_ROLLOVER_JOB_NAME
     assert application.job_queue.jobs[0]["interval"] == TASK_DAILY_ROLLOVER_INTERVAL_SECONDS
     assert application.job_queue.jobs[0]["first"] == 0
+
+
+def test_build_application_registers_only_user_id_discovery_for_zero_user_id() -> None:
+    application = build_application(
+        Settings(
+            telegram_bot_token="test-token",
+            telegram_allowed_user_id=0,
+            database_path=Path("database.sqlite3"),
+        ),
+        capture_service=object(),  # type: ignore[arg-type]
+        link_metadata_service=FakeLinkMetadataService(),  # type: ignore[arg-type]
+        evening_reminder_service=FakeEveningReminderService(),  # type: ignore[arg-type]
+        task_service=FakeTaskService(),  # type: ignore[arg-type]
+    )
+
+    handlers = application.handlers[0]
+
+    assert len(handlers) == 1
